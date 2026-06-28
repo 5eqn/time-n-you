@@ -44,6 +44,7 @@ import com.seqn.timewatcher.ui.components.UtilizationGauge
 import com.seqn.timewatcher.util.ColorUtil
 import com.seqn.timewatcher.util.StatPeriod
 import com.seqn.timewatcher.util.TimeUtil
+import kotlin.math.roundToInt
 
 @Composable
 fun StatsScreen() {
@@ -62,7 +63,7 @@ fun StatsScreen() {
         item {
             SectionCard(null) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    UtilizationGauge(r.utilization, r.isExcellent)
+                    UtilizationGauge(r.utilization, r.isExcellent, ui.targetRatio)
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -73,7 +74,8 @@ fun StatsScreen() {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "优秀标准：利用率 ≥ 50% 且 有效时间 > 7 小时",
+                    "优秀标准：利用率 ≥ ${(ui.targetRatio * 100).roundToInt()}% 且 有效时间 > " +
+                        "${(ui.targetMs.toDouble() / 3_600_000.0).let { "%.1f".format(it) }} 小时",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -89,6 +91,23 @@ fun StatsScreen() {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 StatTile(stringResource(R.string.rest_time), TimeUtil.formatHours1(r.restMs), MaterialTheme.colorScheme.secondary, Modifier.weight(1f))
                 StatTile(stringResource(R.string.total_tracked), TimeUtil.formatHours1(r.totalMs), MaterialTheme.colorScheme.tertiary, Modifier.weight(1f))
+            }
+        }
+
+        if (ui.period == StatPeriod.DAY && r.totalMs > 0) {
+            item {
+                val hours = r.restMs.toDouble() / 3_600_000.0
+                val msg = when {
+                    r.restMs < 10 * 3_600_000L ->
+                        "休息偏少（${"%.1f".format(hours)} 小时）。建议把更多日常事务纳入「生活」，并保证休息、规律运动。"
+                    r.restMs <= 14 * 3_600_000L ->
+                        "休息时长合理（推荐接近 12 小时，当前 ${"%.1f".format(hours)} 小时）。"
+                    else ->
+                        "休息偏多（${"%.1f".format(hours)} 小时）。建议不要赖床、如厕时不玩手机、吃饭时不看视频。"
+                }
+                SectionCard("休息建议") {
+                    Text(msg, style = MaterialTheme.typography.bodyMedium)
+                }
             }
         }
 

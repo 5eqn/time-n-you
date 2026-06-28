@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -26,16 +25,14 @@ import com.seqn.timewatcher.R
 import com.seqn.timewatcher.ui.home.HomeScreen
 import com.seqn.timewatcher.ui.settings.SettingsScreen
 import com.seqn.timewatcher.ui.stats.StatsScreen
-import com.seqn.timewatcher.ui.usage.UsageScreen
 
 sealed class Dest(val route: String, val labelRes: Int, val icon: ImageVector) {
     data object Home : Dest("home", R.string.nav_home, Icons.Filled.Home)
     data object Stats : Dest("stats", R.string.nav_stats, Icons.Filled.BarChart)
-    data object Usage : Dest("usage", R.string.nav_usage, Icons.Filled.MenuBook)
     data object Settings : Dest("settings", R.string.nav_settings, Icons.Filled.Settings)
 }
 
-private val dests = listOf(Dest.Home, Dest.Stats, Dest.Usage, Dest.Settings)
+private val dests = listOf(Dest.Home, Dest.Stats, Dest.Settings)
 
 @Composable
 fun AppNav() {
@@ -70,7 +67,6 @@ fun AppNav() {
         ) {
             composable(Dest.Home.route) { HomeScreen() }
             composable(Dest.Stats.route) { StatsScreen() }
-            composable(Dest.Usage.route) { UsageScreen() }
             composable(Dest.Settings.route) { SettingsScreen() }
         }
     }

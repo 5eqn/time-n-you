@@ -5,7 +5,6 @@
     <!-- Bottom navigation -->
     <string name="nav_home">首页</string>
     <string name="nav_stats">统计</string>
-    <string name="nav_usage">用法</string>
     <string name="nav_settings">设置</string>
 
     <!-- Home -->
@@ -47,6 +46,8 @@
     <!-- Settings -->
     <string name="settings_states">状态列表</string>
     <string name="settings_pomodoro">番茄钟</string>
+    <string name="settings_targets">目标</string>
+    <string name="settings_tips">提醒管理</string>
     <string name="settings_exit_state">番茄钟结束后切换到</string>
     <string name="settings_reset">恢复默认设置</string>
     <string name="settings_export">导出数据</string>
@@ -61,6 +62,7 @@
     <!-- Dialogs / confirm -->
     <string name="confirm">确定</string>
     <string name="cancel">取消</string>
+    <string name="tip_confirm">确认并继续</string>
     <string name="reset_confirm_title">恢复默认设置？</string>
     <string name="reset_confirm_msg">将状态列表与番茄钟设置恢复为默认值。\n已记录的状态切换日志不受影响。</string>
     <string name="import_confirm_title">导入数据？</string>

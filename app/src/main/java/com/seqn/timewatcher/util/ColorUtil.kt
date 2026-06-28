@@ -2,11 +2,11 @@ package com.seqn.timewatcher.util
 
 import androidx.compose.ui.graphics.Color
 
-/** Deterministic, low-saturation color per state id (hash-derived, not editable).
- *  Hue from a stable hash of the id; fixed S/V tuned for muted fills with readable dark text. */
+/** Deterministic, saturated color per state id (hash-derived, not editable).
+ *  Hue from a stable hash of the id; S/V tuned for rich fills with readable white text. */
 object ColorUtil {
-    private const val SATURATION = 0.48f
-    private const val VALUE = 0.74f
+    private const val SATURATION = 0.55f
+    private const val VALUE = 0.50f
 
     fun colorFor(seed: String): Color {
         val unsigned = seed.hashCode().toLong() and 0xFFFFFFFFL
@@ -16,6 +16,6 @@ object ColorUtil {
         return Color(argb)
     }
 
-    /** On-color for fills produced by [colorFor] — always dark for contrast. */
-    val OnFill: Color = Color(0xFF1C1B1F)
+    /** On-color for fills produced by [colorFor] — white for contrast and a cleaner look. */
+    val OnFill: Color = Color(0xFFFFFFFF)
 }

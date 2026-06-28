@@ -19,17 +19,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
-/** Circular gauge showing utilization %. Color steps by tier; "优秀" label when excellent. */
+/** Circular gauge showing utilization %. Color steps by tier relative to [targetRatio]; "优秀" label when excellent. */
 @Composable
 fun UtilizationGauge(
     utilization: Double,
     isExcellent: Boolean,
+    targetRatio: Double,
     modifier: Modifier = Modifier,
 ) {
     val pct = utilization.coerceIn(0.0, 1.0).toFloat()
     val color = when {
-        utilization >= 0.5 -> MaterialTheme.colorScheme.primary
-        utilization >= 0.3 -> MaterialTheme.colorScheme.tertiary
+        utilization >= targetRatio -> MaterialTheme.colorScheme.primary
+        utilization >= targetRatio * 0.6 -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.error
     }
     Box(contentAlignment = Alignment.Center, modifier = modifier.size(150.dp)) {

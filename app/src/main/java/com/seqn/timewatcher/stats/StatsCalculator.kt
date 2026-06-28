@@ -30,10 +30,15 @@ data class StatsResult(
  *  - utilization    = effective / available; excellent when >= 50% AND effective > 7h
  */
 object StatsCalculator {
-    private const val EXCELLENT_RATIO = 0.5
-    private val EXCELLENT_MS = 7L * 3_600_000L
 
-    fun compute(events: List<StateEvent>, periodStart: Long, periodEnd: Long, now: Long): StatsResult {
+    fun compute(
+        events: List<StateEvent>,
+        periodStart: Long,
+        periodEnd: Long,
+        now: Long,
+        targetRatio: Double = 0.5,
+        targetMs: Long = 7L * 3_600_000L,
+    ): StatsResult {
         val zone = ZoneId.systemDefault()
         val cap = minOf(now, periodEnd)
 
@@ -87,7 +92,7 @@ object StatsCalculator {
 
         val available = (total - rest).coerceAtLeast(0L)
         val utilization = if (available > 0) effective.toDouble() / available else 0.0
-        val isExcellent = utilization >= EXCELLENT_RATIO && effective >= EXCELLENT_MS
+        val isExcellent = utilization >= targetRatio && effective >= targetMs
 
         return StatsResult(
             totalMs = total,

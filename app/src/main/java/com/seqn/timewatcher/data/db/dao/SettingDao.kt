@@ -5,9 +5,13 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.seqn.timewatcher.data.db.entity.SettingEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SettingDao {
+    @Query("SELECT * FROM setting")
+    fun observeAll(): Flow<List<SettingEntity>>
+
     @Query("SELECT * FROM setting")
     suspend fun getAll(): List<SettingEntity>
 

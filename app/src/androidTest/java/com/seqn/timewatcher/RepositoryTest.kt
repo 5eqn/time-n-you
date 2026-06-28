@@ -53,9 +53,9 @@ class RepositoryTest {
         val now = 1_000_000L
         val ev = repo.switchState(DefaultConfig.ID_WORK, now)
         assertThat(ev).isNotNull()
-        assertThat(ev!!.pomodoroEndTs).isEqualTo(now + 25 * 60_000L)
+        assertThat(ev!!.pomodoroEndTs).isEqualTo(now + DefaultConfig.DEFAULT_POMODORO_MINUTES * 60_000L)
         assertThat(ev.pomodoroApplied).isTrue()
-        assertThat(scheduled).contains(now + 25 * 60_000L)
+        assertThat(scheduled).contains(now + DefaultConfig.DEFAULT_POMODORO_MINUTES * 60_000L)
     }
 
     @Test
@@ -63,6 +63,14 @@ class RepositoryTest {
         val ev = repo.switchState(DefaultConfig.ID_SLACK, 1_000L)
         assertThat(ev!!.pomodoroEndTs).isNull()
         assertThat(scheduled).isEmpty()
+    }
+
+    @Test
+    fun switching_into_current_state_is_a_noop_and_keeps_elapsed_time() = runBlocking {
+        val first = repo.switchState(DefaultConfig.ID_SLACK, 1_000L) ?: error("first switch null")
+        val second = repo.switchState(DefaultConfig.ID_SLACK, 5_000L) // same state again
+        assertThat(second?.id).isEqualTo(first.id) // no new event inserted
+        assertThat(repo.getEvents()).hasSize(1)
     }
 
     @Test
@@ -86,8 +94,8 @@ class RepositoryTest {
     @Test
     fun export_then_import_round_trips_data() = runBlocking {
         // Use non-pomodoro states so import's reconcile doesn't append an exit event.
-        repo.switchState(DefaultConfig.ID_SLACK, 1_000L)
-        repo.switchState(DefaultConfig.ID_EXERCISE, 2_000L)
+        repo.switchState(DefaultConfig.ID_SLEEP, 1_000L)
+        repo.switchState(DefaultConfig.ID_SLACK, 2_000L)
         val originalDefs = repo.getStateDefs().size
         val originalEvents = repo.getEvents().size
 

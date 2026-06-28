@@ -15,13 +15,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
@@ -38,6 +38,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -61,6 +62,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.seqn.timewatcher.R
 import com.seqn.timewatcher.data.model.Category
 import com.seqn.timewatcher.data.model.StateDef
+import com.seqn.timewatcher.tips.TipId
+import com.seqn.timewatcher.tips.Tips
 import com.seqn.timewatcher.ui.components.SectionCard
 import com.seqn.timewatcher.util.ColorUtil
 import kotlinx.coroutines.launch
@@ -70,6 +73,8 @@ fun SettingsScreen() {
     val vm: SettingsViewModel = viewModel()
     val defs by vm.stateDefs.collectAsStateWithLifecycle()
     val exitId by vm.exitStateId.collectAsStateWithLifecycle()
+    val tipEnabled by vm.tipEnabled.collectAsStateWithLifecycle()
+    val targets by vm.targets.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -83,9 +88,7 @@ fun SettingsScreen() {
     ) { uri ->
         if (uri != null) scope.launch {
             val json = vm.exportJson()
-            runCatching {
-                context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
-            }
+            runCatching { context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) } }
             Toast.makeText(context, R.string.export_done, Toast.LENGTH_SHORT).show()
         }
     }
@@ -97,11 +100,7 @@ fun SettingsScreen() {
                 context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
             }.getOrNull()
             val ok = text != null && vm.importJson(text)
-            Toast.makeText(
-                context,
-                if (ok) R.string.import_done else R.string.import_failed,
-                Toast.LENGTH_SHORT,
-            ).show()
+            Toast.makeText(context, if (ok) R.string.import_done else R.string.import_failed, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -110,20 +109,22 @@ fun SettingsScreen() {
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(vertical = 16.dp),
     ) {
+        // --- state list editor ---
         item {
             SectionCard(stringResource(R.string.settings_states)) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    defs.forEach { def ->
+                    defs.forEachIndexed { index, def ->
                         StateEditorRow(
                             def = def,
+                            canMoveUp = index > 0,
+                            canMoveDown = index < defs.lastIndex,
+                            tipEnabled = tipEnabled,
+                            onMove = { delta -> vm.moveState(def.id, delta) },
                             onDeleteRequest = { pendingDelete = def },
                             onUpdate = vm::updateState,
                         )
                     }
-                    OutlinedButton(
-                        onClick = { vm.addState(defaultName) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
+                    OutlinedButton(onClick = { vm.addState(defaultName) }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Filled.Add, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
                         Text(stringResource(R.string.settings_add_state))
@@ -132,23 +133,66 @@ fun SettingsScreen() {
             }
         }
 
+        // --- pomodoro ---
         item {
             SectionCard(stringResource(R.string.settings_pomodoro)) {
-                ExitStateSelector(
-                    defs = defs,
-                    selectedId = exitId,
-                    onSelect = vm::setExit,
+                ExitStateSelector(defs = defs, selectedId = exitId, onSelect = vm::setExit)
+            }
+        }
+
+        // --- targets ---
+        item {
+            SectionCard(stringResource(R.string.settings_targets)) {
+                val ratio = targets.first.toFloat()
+                val hours = (targets.second / 3_600_000.0)
+                Text(
+                    "有效时间目标：${"%.1f".format(hours)} 小时",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Slider(
+                    value = hours.toFloat().coerceIn(1f, 12f),
+                    onValueChange = { vm.setTargetMs((it.toDouble() * 3_600_000).toLong()) },
+                    valueRange = 1f..12f,
+                    steps = 21,
+                )
+                Spacer(Modifier.size(8.dp))
+                Text(
+                    "目标利用率：${(ratio * 100).toInt()}%",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Slider(
+                    value = ratio.coerceIn(0.1f, 0.9f),
+                    onValueChange = { vm.setTargetRatio(it.toDouble()) },
+                    valueRange = 0.1f..0.9f,
+                    steps = 15,
                 )
             }
         }
 
+        // --- tip management ---
+        item {
+            SectionCard(stringResource(R.string.settings_tips)) {
+                Tips.manageable.forEach { tip ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(tip.settingLabel, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = tipEnabled[tip.id] != false,
+                            onCheckedChange = { vm.setTipEnabled(tip.id, it) },
+                        )
+                    }
+                }
+            }
+        }
+
+        // --- data ---
         item {
             SectionCard(null) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        onClick = { showReset = true },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
+                    Button(onClick = { showReset = true }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Filled.Refresh, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
                         Text(stringResource(R.string.settings_reset))
@@ -161,10 +205,7 @@ fun SettingsScreen() {
                         Spacer(Modifier.width(6.dp))
                         Text(stringResource(R.string.settings_export))
                     }
-                    OutlinedButton(
-                        onClick = { showImport = true },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
+                    OutlinedButton(onClick = { showImport = true }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Filled.FileDownload, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
                         Text(stringResource(R.string.settings_import))
@@ -203,15 +244,37 @@ fun SettingsScreen() {
 @Composable
 private fun StateEditorRow(
     def: StateDef,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    tipEnabled: Map<TipId, Boolean>,
+    onMove: (Int) -> Unit,
     onDeleteRequest: () -> Unit,
     onUpdate: (StateDef) -> Unit,
 ) {
     var name by remember(def.id) { mutableStateOf(def.name) }
     var minutes by remember(def.id) { mutableStateOf(def.pomodoroMinutes.toString()) }
+    var pendingDef by remember(def.id) { mutableStateOf<StateDef?>(null) }
+
+    // Only intercept the *transition into* an "effective but unmanaged" state.
+    fun tryApply(newDef: StateDef) {
+        val wasBad = Tips.triggersPhilosophy(def.category.name, def.pomodoroEnabled)
+        val isBad = Tips.triggersPhilosophy(newDef.category.name, newDef.pomodoroEnabled)
+        if (!wasBad && isBad && tipEnabled[TipId.PHILOSOPHY] != false) {
+            pendingDef = newDef
+        } else {
+            onUpdate(newDef)
+        }
+    }
 
     Surface(tonalElevation = 1.dp, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { onMove(-1) }, enabled = canMoveUp) {
+                    Icon(Icons.Filled.ArrowUpward, contentDescription = "上移")
+                }
+                IconButton(onClick = { onMove(1) }, enabled = canMoveDown) {
+                    Icon(Icons.Filled.ArrowDownward, contentDescription = "下移")
+                }
                 Box(Modifier.size(22.dp).clip(CircleShape).background(ColorUtil.colorFor(def.id)))
                 Spacer(Modifier.width(10.dp))
                 OutlinedTextField(
@@ -230,17 +293,21 @@ private fun StateEditorRow(
                 Category.entries.forEach { c ->
                     FilterChip(
                         selected = def.category == c,
-                        onClick = { onUpdate(def.copy(category = c)) },
+                        onClick = { tryApply(def.copy(category = c)) },
                         label = { Text(categoryLabel(c)) },
                     )
                 }
             }
             Spacer(Modifier.size(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(
                         checked = def.pomodoroEnabled,
-                        onCheckedChange = { onUpdate(def.copy(pomodoroEnabled = it)) },
+                        onCheckedChange = { tryApply(def.copy(pomodoroEnabled = it)) },
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.state_pomodoro_enable))
@@ -260,6 +327,20 @@ private fun StateEditorRow(
                 }
             }
         }
+    }
+
+    pendingDef?.let { pd ->
+        AlertDialog(
+            onDismissRequest = { pendingDef = null },
+            title = { Text(Tips.philosophy.title, fontWeight = FontWeight.Bold) },
+            text = { Text(Tips.philosophy.message) },
+            confirmButton = {
+                TextButton(onClick = { onUpdate(pd); pendingDef = null }) { Text(stringResource(R.string.tip_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDef = null }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
     }
 }
 

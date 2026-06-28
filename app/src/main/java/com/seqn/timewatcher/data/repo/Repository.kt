@@ -22,7 +22,7 @@ import com.seqn.timewatcher.pomodoro.PomodoroAlarm
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-/** Single source of truth for state defs, switch events, settings, and the pomodoro lifecycle. */
+/** Single source of truth for state defs, switch events, settings, targets, tips, and the pomodoro lifecycle. */
 class Repository(
     db: AppDatabase,
     private val alarm: PomodoroAlarm,
@@ -38,6 +38,9 @@ class Repository(
 
     fun observeEvents(): Flow<List<StateEvent>> =
         eventDao.observeAll().map { list -> list.map { it.toModel() } }
+
+    fun observeSettings(): Flow<Map<String, String>> =
+        settingDao.observeAll().map { list -> list.associate { it.key to it.value } }
 
     suspend fun getStateDefs(): List<StateDef> = stateDefDao.getAll().map { it.toModel() }
     suspend fun getEvents(): List<StateEvent> = eventDao.getAll().map { it.toModel() }
@@ -63,9 +66,46 @@ class Repository(
         settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, id))
     }
 
+    // ---- targets (configurable 优秀 threshold) ----
+    suspend fun getTargetRatio(): Double =
+        settingDao.get(DefaultConfig.SETTING_TARGET_RATIO)?.toDoubleOrNull() ?: DefaultConfig.DEFAULT_TARGET_RATIO
+
+    suspend fun setTargetRatio(ratio: Double) {
+        settingDao.set(SettingEntity(DefaultConfig.SETTING_TARGET_RATIO, ratio.toString()))
+    }
+
+    suspend fun getTargetMs(): Long =
+        settingDao.get(DefaultConfig.SETTING_TARGET_MS)?.toLongOrNull() ?: DefaultConfig.DEFAULT_TARGET_MS
+
+    suspend fun setTargetMs(ms: Long) {
+        settingDao.set(SettingEntity(DefaultConfig.SETTING_TARGET_MS, ms.toString()))
+    }
+
+    // ---- tip enable/disable ----
+    suspend fun getTipEnabled(tipId: String): Boolean =
+        settingDao.get(DefaultConfig.SETTING_TIP_PREFIX + tipId) != "0" // default enabled
+
+    suspend fun setTipEnabled(tipId: String, enabled: Boolean) {
+        settingDao.set(SettingEntity(DefaultConfig.SETTING_TIP_PREFIX + tipId, if (enabled) "1" else "0"))
+    }
+
+    // ---- changelog ----
+    suspend fun getLastChangelogVersion(): String? =
+        settingDao.get(DefaultConfig.SETTING_LAST_CHANGELOG_VERSION)
+
+    suspend fun setLastChangelogVersion(version: String) {
+        settingDao.set(SettingEntity(DefaultConfig.SETTING_LAST_CHANGELOG_VERSION, version))
+    }
+
     // ---- state switching (core) ----
-    /** Records a switch to [stateId] at [now]; arms a pomodoro if that state has one configured. */
+    /** Records a switch to [stateId] at [now]; arms a pomodoro if that state has one configured.
+     *  No-op (keeps elapsed time) if already in [stateId]. */
     suspend fun switchState(stateId: String, now: Long): StateEvent? {
+        val latest = eventDao.getLatest()
+        if (latest != null && latest.stateId == stateId) {
+            // Disallow re-entering the current state — would otherwise reset the running timer.
+            return latest.toModel()
+        }
         val def = stateDefDao.getById(stateId) ?: return null
         alarm.cancel() // any previously-armed pomodoro is voided by the new switch
         val event = StateEventEntity(
@@ -147,11 +187,26 @@ class Repository(
         return def
     }
 
+    /** Swap two adjacent states' sort order (reorder). */
+    suspend fun moveState(id: String, delta: Int) {
+        val all = stateDefDao.getAll().sortedBy { it.sortOrder }
+        val index = all.indexOfFirst { it.id == id }
+        if (index < 0) return
+        val target = index + delta
+        if (target < 0 || target >= all.size) return
+        val a = all[index]
+        val b = all[target]
+        stateDefDao.upsert(a.copy(sortOrder = b.sortOrder))
+        stateDefDao.upsert(b.copy(sortOrder = a.sortOrder))
+    }
+
     suspend fun resetToDefaultConfig() {
         dbRef.withTransaction {
             stateDefDao.deleteAll()
             stateDefDao.upsertAll(defaultStateDefs().map { it.toEntity() })
+            settingDao.deleteAll()
             settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, DefaultConfig.DEFAULT_EXIT_STATE_ID))
+            // targets + tips fall back to defaults by absence of keys
         }
         reconcileAndArm(System.currentTimeMillis())
     }

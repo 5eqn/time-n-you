@@ -3,11 +3,14 @@ package com.seqn.timewatcher.ui.home
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.seqn.timewatcher.BuildConfig
+import com.seqn.timewatcher.data.model.DefaultConfig
 import com.seqn.timewatcher.data.model.StateDef
 import com.seqn.timewatcher.data.model.StateEvent
 import com.seqn.timewatcher.data.repo.AppGraph
 import com.seqn.timewatcher.stats.StatsCalculator
 import com.seqn.timewatcher.stats.StatsResult
+import com.seqn.timewatcher.tips.TipId
 import com.seqn.timewatcher.util.StatPeriod
 import com.seqn.timewatcher.util.TimeUtil
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +20,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -37,20 +41,38 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, System.currentTimeMillis())
 
-    val todayStats: StateFlow<StatsResult> = combine(events, ticker) { evs, now ->
+    val targets: StateFlow<Pair<Double, Long>> = repo.observeSettings().map { s ->
+        val ratio = s[DefaultConfig.SETTING_TARGET_RATIO]?.toDoubleOrNull() ?: DefaultConfig.DEFAULT_TARGET_RATIO
+        val ms = s[DefaultConfig.SETTING_TARGET_MS]?.toLongOrNull() ?: DefaultConfig.DEFAULT_TARGET_MS
+        ratio to ms
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, DefaultConfig.DEFAULT_TARGET_RATIO to DefaultConfig.DEFAULT_TARGET_MS)
+
+    val tipEnabled: StateFlow<Map<TipId, Boolean>> = repo.observeSettings().map { s ->
+        TipId.entries.associateWith { s[DefaultConfig.SETTING_TIP_PREFIX + it.name] != "0" }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, TipId.entries.associateWith { true })
+
+    val todayStats: StateFlow<StatsResult> = combine(events, ticker, targets) { evs, now, (ratio, ms) ->
         val start = TimeUtil.periodStart(StatPeriod.DAY, now)
         val end = TimeUtil.periodEnd(StatPeriod.DAY, start)
-        StatsCalculator.compute(evs, start, end, now)
+        StatsCalculator.compute(evs, start, end, now, ratio, ms)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, StatsCalculator.compute(emptyList(), 0, 0, 0))
 
     private val missedChannel = Channel<String>(Channel.BUFFERED)
     val missed = missedChannel.receiveAsFlow()
 
+    private val changelogChannel = Channel<String>(Channel.BUFFERED)
+    val changelog = changelogChannel.receiveAsFlow()
+
     init {
-        // Reconcile a pomodoro that ended while the app was closed.
+        // Reconcile a pomodoro that ended while the app was closed, and show changelog on version bump.
         viewModelScope.launch(Dispatchers.IO) {
             val exit = repo.reconcileAndArm(System.currentTimeMillis())
             if (exit != null) missedChannel.trySend(exit.name)
+            val version = BuildConfig.VERSION_NAME
+            if (repo.getLastChangelogVersion() != version) {
+                repo.setLastChangelogVersion(version)
+                changelogChannel.trySend(version)
+            }
         }
     }
 

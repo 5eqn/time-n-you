@@ -7,10 +7,12 @@ import com.seqn.timewatcher.data.model.DefaultConfig
 import com.seqn.timewatcher.data.model.JsonCodec
 import com.seqn.timewatcher.data.model.StateDef
 import com.seqn.timewatcher.data.repo.AppGraph
+import com.seqn.timewatcher.tips.TipId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -23,6 +25,16 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     private val _exitStateId = MutableStateFlow(DefaultConfig.DEFAULT_EXIT_STATE_ID)
     val exitStateId: StateFlow<String> = _exitStateId
 
+    val tipEnabled: StateFlow<Map<TipId, Boolean>> = repo.observeSettings().map { s ->
+        TipId.entries.associateWith { s[DefaultConfig.SETTING_TIP_PREFIX + it.name] != "0" }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, TipId.entries.associateWith { true })
+
+    val targets: StateFlow<Pair<Double, Long>> = repo.observeSettings().map { s ->
+        val ratio = s[DefaultConfig.SETTING_TARGET_RATIO]?.toDoubleOrNull() ?: DefaultConfig.DEFAULT_TARGET_RATIO
+        val ms = s[DefaultConfig.SETTING_TARGET_MS]?.toLongOrNull() ?: DefaultConfig.DEFAULT_TARGET_MS
+        ratio to ms
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, DefaultConfig.DEFAULT_TARGET_RATIO to DefaultConfig.DEFAULT_TARGET_MS)
+
     init {
         viewModelScope.launch(Dispatchers.IO) { _exitStateId.value = repo.getExitStateId() }
     }
@@ -30,10 +42,16 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     fun updateState(def: StateDef) = viewModelScope.launch(Dispatchers.IO) { repo.upsertStateDef(def) }
     fun deleteState(id: String) = viewModelScope.launch(Dispatchers.IO) { repo.deleteStateDef(id) }
     fun addState(name: String) = viewModelScope.launch(Dispatchers.IO) { repo.addStateDef(name) }
+    fun moveState(id: String, delta: Int) = viewModelScope.launch(Dispatchers.IO) { repo.moveState(id, delta) }
     fun setExit(id: String) = viewModelScope.launch(Dispatchers.IO) {
-        repo.setExitState(id)
-        _exitStateId.value = id
+        repo.setExitState(id); _exitStateId.value = id
     }
+    fun setTipEnabled(id: TipId, enabled: Boolean) = viewModelScope.launch(Dispatchers.IO) {
+        repo.setTipEnabled(id.name, enabled)
+    }
+    fun setTargetRatio(ratio: Double) = viewModelScope.launch(Dispatchers.IO) { repo.setTargetRatio(ratio) }
+    fun setTargetMs(ms: Long) = viewModelScope.launch(Dispatchers.IO) { repo.setTargetMs(ms) }
+
     fun resetDefaults() = viewModelScope.launch(Dispatchers.IO) {
         repo.resetToDefaultConfig()
         _exitStateId.value = DefaultConfig.DEFAULT_EXIT_STATE_ID
