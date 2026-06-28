@@ -1,0 +1,240 @@
+package com.seqn.timewatcher.data.repo
+
+import androidx.room.withTransaction
+import com.seqn.timewatcher.data.db.AppDatabase
+import com.seqn.timewatcher.data.db.entity.SettingEntity
+import com.seqn.timewatcher.data.db.entity.StateDefEntity
+import com.seqn.timewatcher.data.db.entity.StateEventEntity
+import com.seqn.timewatcher.data.db.entity.toEntity
+import com.seqn.timewatcher.data.db.entity.toModel
+import com.seqn.timewatcher.data.model.Category
+import com.seqn.timewatcher.data.model.DefaultConfig
+import com.seqn.timewatcher.data.model.ExportBundle
+import com.seqn.timewatcher.data.model.ExportConfig
+import com.seqn.timewatcher.data.model.ExportEvent
+import com.seqn.timewatcher.data.model.ExportStateDef
+import com.seqn.timewatcher.data.model.JsonCodec
+import com.seqn.timewatcher.data.model.StateDef
+import com.seqn.timewatcher.data.model.StateEvent
+import com.seqn.timewatcher.data.model.defaultStateDefs
+import com.seqn.timewatcher.data.model.fromString
+import com.seqn.timewatcher.pomodoro.PomodoroAlarm
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
+/** Single source of truth for state defs, switch events, settings, and the pomodoro lifecycle. */
+class Repository(
+    db: AppDatabase,
+    private val alarm: PomodoroAlarm,
+) {
+    private val stateDefDao = db.stateDefDao()
+    private val eventDao = db.eventDao()
+    private val settingDao = db.settingDao()
+    private val dbRef = db
+
+    // ---- observation ----
+    fun observeStateDefs(): Flow<List<StateDef>> =
+        stateDefDao.observeAll().map { list -> list.map { it.toModel() } }
+
+    fun observeEvents(): Flow<List<StateEvent>> =
+        eventDao.observeAll().map { list -> list.map { it.toModel() } }
+
+    suspend fun getStateDefs(): List<StateDef> = stateDefDao.getAll().map { it.toModel() }
+    suspend fun getEvents(): List<StateEvent> = eventDao.getAll().map { it.toModel() }
+    suspend fun getLatestEvent(): StateEvent? = eventDao.getLatest()?.toModel()
+
+    // ---- exit state setting ----
+    private suspend fun exitStateId(): String =
+        settingDao.get(DefaultConfig.SETTING_EXIT_STATE) ?: DefaultConfig.DEFAULT_EXIT_STATE_ID
+
+    suspend fun getExitStateId(): String = exitStateId()
+
+    suspend fun resolveExitState(): StateDef {
+        val id = exitStateId()
+        stateDefDao.getById(id)?.let { return it.toModel() }
+        stateDefDao.getById(DefaultConfig.DEFAULT_EXIT_STATE_ID)?.let { return it.toModel() }
+        val all = stateDefDao.getAll()
+        if (all.isEmpty()) return defaultStateDefs().first()
+        all.firstOrNull { Category.fromString(it.category) == Category.WASTE }?.let { return it.toModel() }
+        return all.first().toModel()
+    }
+
+    suspend fun setExitState(id: String) {
+        settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, id))
+    }
+
+    // ---- state switching (core) ----
+    /** Records a switch to [stateId] at [now]; arms a pomodoro if that state has one configured. */
+    suspend fun switchState(stateId: String, now: Long): StateEvent? {
+        val def = stateDefDao.getById(stateId) ?: return null
+        alarm.cancel() // any previously-armed pomodoro is voided by the new switch
+        val event = StateEventEntity(
+            stateId = def.id,
+            stateName = def.name,
+            category = def.category,
+            timestamp = now,
+            pomodoroEndTs = null,
+            pomodoroApplied = false,
+        )
+        val newId = eventDao.insert(event)
+        if (def.pomodoroEnabled && def.pomodoroMinutes > 0) {
+            val endTs = now + def.pomodoroMinutes * 60_000L
+            eventDao.updatePomodoro(newId, endTs, applied = true)
+            alarm.schedule(endTs)
+            return event.copy(id = newId, pomodoroEndTs = endTs, pomodoroApplied = true).toModel()
+        }
+        return event.copy(id = newId).toModel()
+    }
+
+    /** If the active pomodoro has already ended (and nothing newer exists), switch to the exit
+     *  state. Returns the exit StateDef when it fired, else null. */
+    suspend fun reconcilePomodoro(now: Long): StateDef? {
+        val latest = eventDao.getLatest() ?: return null
+        val endTs = latest.pomodoroEndTs ?: return null
+        if (endTs > now) return null // still running
+        val exit = resolveExitState()
+        eventDao.insert(
+            StateEventEntity(
+                stateId = exit.id,
+                stateName = exit.name,
+                category = exit.category.name,
+                timestamp = endTs, // attribute the time since the scheduled end to the exit state
+                pomodoroEndTs = null,
+                pomodoroApplied = false,
+            ),
+        )
+        alarm.cancel()
+        return exit
+    }
+
+    /** Re-arm a still-pending pomodoro (e.g. after reboot/import), or reconcile if it ended.
+     *  Returns the exit StateDef when a reconcile fired, else null. */
+    suspend fun reconcileAndArm(now: Long): StateDef? {
+        val latest = eventDao.getLatest()
+        if (latest == null) {
+            alarm.cancel()
+            return null
+        }
+        val endTs = latest.pomodoroEndTs
+        if (endTs == null) {
+            alarm.cancel()
+            return null
+        }
+        return if (endTs > now) {
+            alarm.schedule(endTs)
+            null
+        } else {
+            reconcilePomodoro(now)
+        }
+    }
+
+    // ---- config editing ----
+    suspend fun upsertStateDef(def: StateDef) = stateDefDao.upsert(def.toEntity())
+    suspend fun deleteStateDef(id: String) = stateDefDao.delete(id)
+
+    suspend fun addStateDef(name: String): StateDef {
+        val count = stateDefDao.count()
+        val id = "state_${count + 1}_${System.currentTimeMillis()}"
+        val def = StateDef(
+            id = id,
+            name = name,
+            category = Category.WASTE, // new states default to WASTE so they never inflate utilization
+            pomodoroEnabled = false,
+            pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES,
+            sortOrder = count,
+        )
+        stateDefDao.upsert(def.toEntity())
+        return def
+    }
+
+    suspend fun resetToDefaultConfig() {
+        dbRef.withTransaction {
+            stateDefDao.deleteAll()
+            stateDefDao.upsertAll(defaultStateDefs().map { it.toEntity() })
+            settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, DefaultConfig.DEFAULT_EXIT_STATE_ID))
+        }
+        reconcileAndArm(System.currentTimeMillis())
+    }
+
+    suspend fun seedDefaultsIfEmpty() {
+        if (stateDefDao.count() == 0) {
+            dbRef.withTransaction {
+                stateDefDao.upsertAll(defaultStateDefs().map { it.toEntity() })
+                settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, DefaultConfig.DEFAULT_EXIT_STATE_ID))
+            }
+        }
+    }
+
+    // ---- export / import ----
+    suspend fun exportJson(now: Long): String = JsonCodec.toJson(buildBundle(now))
+
+    private suspend fun buildBundle(now: Long): ExportBundle {
+        val defs = stateDefDao.getAll().map { it.toModel() }
+        val events = eventDao.getAll().map { it.toModel() }
+        return ExportBundle(
+            schemaVersion = DefaultConfig.SCHEMA_VERSION,
+            exportedAt = now,
+            config = ExportConfig(
+                states = defs.map {
+                    ExportStateDef(
+                        id = it.id,
+                        name = it.name,
+                        category = it.category.name,
+                        pomodoroEnabled = it.pomodoroEnabled,
+                        pomodoroMinutes = it.pomodoroMinutes,
+                        sortOrder = it.sortOrder,
+                    )
+                },
+                pomodoroExitStateId = exitStateId(),
+            ),
+            events = events.map {
+                ExportEvent(
+                    id = it.id,
+                    stateId = it.stateId,
+                    stateName = it.stateName,
+                    category = it.category.name,
+                    timestamp = it.timestamp,
+                    pomodoroEndTs = it.pomodoroEndTs,
+                    pomodoroApplied = it.pomodoroApplied,
+                )
+            },
+        )
+    }
+
+    /** Replaces config + events atomically. Returns true on success. */
+    suspend fun importBundle(bundle: ExportBundle): Boolean {
+        if (bundle.schemaVersion != DefaultConfig.SCHEMA_VERSION) return false
+        dbRef.withTransaction {
+            stateDefDao.deleteAll()
+            eventDao.deleteAll()
+            settingDao.deleteAll()
+            stateDefDao.upsertAll(
+                bundle.config.states.map {
+                    StateDefEntity(
+                        id = it.id,
+                        name = it.name,
+                        category = it.category,
+                        pomodoroEnabled = it.pomodoroEnabled,
+                        pomodoroMinutes = it.pomodoroMinutes,
+                        sortOrder = it.sortOrder,
+                    )
+                },
+            )
+            eventDao.insertAll(
+                bundle.events.map {
+                    StateEventEntity(
+                        stateId = it.stateId,
+                        stateName = it.stateName,
+                        category = it.category,
+                        timestamp = it.timestamp,
+                        pomodoroEndTs = it.pomodoroEndTs,
+                        pomodoroApplied = it.pomodoroApplied,
+                    )
+                },
+            )
+            settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, bundle.config.pomodoroExitStateId))
+        }
+        reconcileAndArm(System.currentTimeMillis())
+        return true
+    }
+}

@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">时间观察者</string>
+
+    <!-- Bottom navigation -->
+    <string name="nav_home">首页</string>
+    <string name="nav_stats">统计</string>
+    <string name="nav_usage">用法</string>
+    <string name="nav_settings">设置</string>
+
+    <!-- Home -->
+    <string name="current_state">当前状态</string>
+    <string name="elapsed">已用时</string>
+    <string name="remaining">剩余</string>
+    <string name="pomodoro_running">番茄钟进行中</string>
+    <string name="tap_to_switch">点按下方按钮切换状态</string>
+    <string name="today_summary">今日</string>
+    <string name="today_utilization">今日利用率</string>
+    <string name="no_state_yet">还没有记录。点按下方按钮开始。</string>
+    <string name="effective_short">有效</string>
+    <string name="available_short">可用</string>
+
+    <!-- Stats -->
+    <string name="period_day">日</string>
+    <string name="period_week">周</string>
+    <string name="period_month">月</string>
+    <string name="period_year">年</string>
+    <string name="utilization_title">利用率</string>
+    <string name="effective_time">有效时间</string>
+    <string name="available_time">可用时间</string>
+    <string name="rest_time">休息时间</string>
+    <string name="waste_time">无效时间</string>
+    <string name="total_tracked">记录总时长</string>
+    <string name="excellent">优秀</string>
+    <string name="rating_good">良好</string>
+    <string name="rating_effort">需努力</string>
+    <string name="breakdown_title">各状态时长</string>
+    <string name="daily_breakdown_title">每日分布</string>
+    <string name="hours_suffix">小时</string>
+    <string name="minutes_suffix">分</string>
+
+    <!-- Categories -->
+    <string name="cat_rest">休息</string>
+    <string name="cat_effective">有效</string>
+    <string name="cat_waste">无效</string>
+
+    <!-- Settings -->
+    <string name="settings_states">状态列表</string>
+    <string name="settings_pomodoro">番茄钟</string>
+    <string name="settings_exit_state">番茄钟结束后切换到</string>
+    <string name="settings_reset">恢复默认设置</string>
+    <string name="settings_export">导出数据</string>
+    <string name="settings_import">导入数据</string>
+    <string name="settings_add_state">添加状态</string>
+    <string name="state_name">名称</string>
+    <string name="state_category">统计类别</string>
+    <string name="state_pomodoro_enable">应用番茄钟</string>
+    <string name="state_pomodoro_minutes">番茄钟时长（分钟）</string>
+    <string name="state_delete">删除</string>
+
+    <!-- Dialogs / confirm -->
+    <string name="confirm">确定</string>
+    <string name="cancel">取消</string>
+    <string name="reset_confirm_title">恢复默认设置？</string>
+    <string name="reset_confirm_msg">将状态列表与番茄钟设置恢复为默认值。\n已记录的状态切换日志不受影响。</string>
+    <string name="import_confirm_title">导入数据？</string>
+    <string name="import_confirm_msg">将用导入的内容替换当前的状态列表、设置与所有切换日志。建议先导出备份。</string>
+    <string name="export_done">已导出到所选位置</string>
+    <string name="import_done">导入完成</string>
+    <string name="import_failed">导入失败：文件格式不正确</string>
+    <string name="delete_state_title">删除该状态？</string>
+    <string name="delete_state_msg">历史记录中的该状态会保留，但不再显示在主界面。</string>
+
+    <!-- Pomodoro notifications -->
+    <string name="notif_channel_pomodoro">番茄钟提醒</string>
+    <string name="notif_pomodoro_title">番茄结束！</string>
+    <string name="notif_pomodoro_text">已切换到「%1$s」，建议起身运动一下。</string>
+    <string name="missed_pomodoro_toast">番茄钟在应用关闭期间结束，已自动切换状态。</string>
+
+    <string name="new_state_default_name">新状态</string>
+</resources>
