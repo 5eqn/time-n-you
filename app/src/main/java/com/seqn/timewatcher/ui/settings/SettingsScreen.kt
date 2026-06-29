@@ -1,5 +1,8 @@
 package com.seqn.timewatcher.ui.settings
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -11,21 +14,28 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -45,6 +55,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,16 +64,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.seqn.timewatcher.R
 import com.seqn.timewatcher.data.model.Category
 import com.seqn.timewatcher.data.model.StateDef
+import com.seqn.timewatcher.pomodoro.AlarmDebugLog
+import com.seqn.timewatcher.pomodoro.AlarmLogEntry
+import com.seqn.timewatcher.pomodoro.formatted
 import com.seqn.timewatcher.tips.TipId
 import com.seqn.timewatcher.tips.Tips
 import com.seqn.timewatcher.ui.components.SectionCard
@@ -76,6 +93,7 @@ fun SettingsScreen() {
     val exitId by vm.exitStateId.collectAsStateWithLifecycle()
     val tipEnabled by vm.tipEnabled.collectAsStateWithLifecycle()
     val targets by vm.targets.collectAsStateWithLifecycle()
+    val alarmLog by vm.alarmLog.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -222,6 +240,15 @@ fun SettingsScreen() {
                     }
                 }
             }
+        }
+
+        // --- alarm debug (Vivo diagnostic) ---
+        item {
+            AlarmDebugSection(
+                entries = alarmLog,
+                onTest = { vm.testAlarm() },
+                onClear = { vm.clearAlarmLog() },
+            )
         }
     }
 
@@ -435,4 +462,106 @@ private fun categoryLabel(c: Category): String = when (c) {
     Category.REST -> "休息"
     Category.EFFECTIVE -> "有效"
     Category.WASTE -> "无效"
+}
+
+@Composable
+private fun AlarmDebugSection(
+    entries: List<AlarmLogEntry>,
+    onTest: () -> Unit,
+    onClear: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scroll = rememberScrollState()
+    // Newest lines are appended at the bottom; keep the view pinned there.
+    LaunchedEffect(entries.size) {
+        if (entries.isNotEmpty()) scroll.animateScrollTo(scroll.maxValue)
+    }
+
+    SectionCard(stringResource(R.string.settings_alarm_debug)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = stringResource(R.string.alarm_debug_help),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = onTest, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.alarm_debug_test))
+                }
+                OutlinedButton(
+                    onClick = {
+                        copyLog(context)
+                        Toast.makeText(context, R.string.alarm_debug_copied, Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.Filled.ContentCopy, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.alarm_debug_copy))
+                }
+            }
+            OutlinedButton(onClick = onClear, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Delete, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.alarm_debug_clear))
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.BugReport,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = stringResource(R.string.alarm_debug_log, entries.size),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            // The persistent trace itself: monospace, status-coloured, scrolls within a fixed height.
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .verticalScroll(scroll),
+            ) {
+                if (entries.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.alarm_debug_empty),
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        entries.forEach { entry ->
+                            Text(
+                                text = entry.formatted(),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = when (entry.status) {
+                                    AlarmDebugLog.STATUS_FAIL -> MaterialTheme.colorScheme.error
+                                    AlarmDebugLog.STATUS_OK -> Color(0xFF1B7F3C)
+                                    else -> MaterialTheme.colorScheme.onSurface
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun copyLog(context: Context) {
+    val text = AlarmDebugLog.asText()
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("alarm_debug_log", text))
 }

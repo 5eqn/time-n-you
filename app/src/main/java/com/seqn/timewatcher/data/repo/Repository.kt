@@ -168,8 +168,7 @@ class Repository(
 
     /** Re-arm a still-pending pomodoro (e.g. after reboot/import), or reconcile if it ended.
      *  Returns the exit StateDef when a reconcile fired, else null. */
-    suspend fun reconcileAndArm(now: Long): StateDef? {
-        val latest = eventDao.getLatest()
+    suspend fun reconcileAndArm(now: Long): StateDef? {        val latest = eventDao.getLatest()
         if (latest == null) {
             alarm.cancel()
             return null
@@ -188,6 +187,14 @@ class Repository(
     }
 
     // ---- config editing ----
+    /** Debug-only: arms a one-shot test alarm [delayMs] from now via the real alarm pipeline.
+     *  Exercises the exact setAlarmClock → RingerService path so a customer can verify ringing
+     *  (and capture a trace) without a real pomodoro. */
+    fun testAlarm(delayMs: Long) {
+        alarm.cancel()
+        alarm.schedule(System.currentTimeMillis() + delayMs, isTest = true)
+    }
+
     suspend fun upsertStateDef(def: StateDef) = stateDefDao.upsert(def.toEntity())
     suspend fun deleteStateDef(id: String) = stateDefDao.delete(id)
 

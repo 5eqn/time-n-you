@@ -83,4 +83,14 @@
     <string name="stop_alarm">停止</string>
 
     <string name="new_state_default_name">新状态</string>
+
+    <!-- Alarm debug (Vivo diagnostic) -->
+    <string name="settings_alarm_debug">调试 · 响铃测试</string>
+    <string name="alarm_debug_help">点按「测试响铃」后，请在 5 秒内锁屏或退到后台（模拟 Vivo 环境）。5 秒后应响铃并弹出全屏界面。回到本页可查看完整日志并复制发给我。</string>
+    <string name="alarm_debug_test">测试响铃（5秒）</string>
+    <string name="alarm_debug_copy">复制日志</string>
+    <string name="alarm_debug_clear">清除日志</string>
+    <string name="alarm_debug_log">响铃日志（%1$d 条）</string>
+    <string name="alarm_debug_empty">暂无日志。点按「测试响铃」开始。</string>
+    <string name="alarm_debug_copied">日志已复制到剪贴板</string>
 </resources>

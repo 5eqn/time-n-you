@@ -7,6 +7,8 @@ import com.seqn.timewatcher.data.model.DefaultConfig
 import com.seqn.timewatcher.data.model.JsonCodec
 import com.seqn.timewatcher.data.model.StateDef
 import com.seqn.timewatcher.data.repo.AppGraph
+import com.seqn.timewatcher.pomodoro.AlarmDebugLog
+import com.seqn.timewatcher.pomodoro.AlarmLogEntry
 import com.seqn.timewatcher.tips.TipId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +40,18 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch(Dispatchers.IO) { _exitStateId.value = repo.getExitStateId() }
     }
+
+    /** Live view of the persistent alarm debug log (schedule → fire → foreground → media). */
+    val alarmLog: StateFlow<List<AlarmLogEntry>> = AlarmDebugLog.events
+
+    /** Arms a 5-second test alarm through the real pipeline. Customer should lock the screen /
+     *  background the app within 5s to reproduce Vivo conditions. */
+    fun testAlarm() = viewModelScope.launch(Dispatchers.IO) {
+        AlarmDebugLog.log("TEST", AlarmDebugLog.STATUS_INFO, "=== Test alarm button pressed (5s) ===")
+        repo.testAlarm(5_000L)
+    }
+
+    fun clearAlarmLog() = AlarmDebugLog.clear()
 
     fun updateState(def: StateDef) = viewModelScope.launch(Dispatchers.IO) { repo.upsertStateDef(def) }
     fun deleteState(id: String) = viewModelScope.launch(Dispatchers.IO) { repo.deleteStateDef(id) }
