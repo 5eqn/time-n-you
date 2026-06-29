@@ -9,19 +9,21 @@ import com.seqn.timewatcher.stats.StatsCalculator
 import com.seqn.timewatcher.stats.StatsResult
 import com.seqn.timewatcher.util.StatPeriod
 import com.seqn.timewatcher.util.TimeUtil
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 class StatsViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = AppGraph.repository(app)
-
-    val events = repo.observeEvents().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _period = MutableStateFlow(StatPeriod.DAY)
     val period: StateFlow<StatPeriod> = _period
@@ -34,13 +36,13 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
             emit(System.currentTimeMillis())
             delay(30_000)
         }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, System.currentTimeMillis())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), System.currentTimeMillis())
 
     val targets: StateFlow<Pair<Double, Long>> = repo.observeSettings().map { s ->
         val ratio = s[DefaultConfig.SETTING_TARGET_RATIO]?.toDoubleOrNull() ?: DefaultConfig.DEFAULT_TARGET_RATIO
         val ms = s[DefaultConfig.SETTING_TARGET_MS]?.toLongOrNull() ?: DefaultConfig.DEFAULT_TARGET_MS
         ratio to ms
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, DefaultConfig.DEFAULT_TARGET_RATIO to DefaultConfig.DEFAULT_TARGET_MS)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DefaultConfig.DEFAULT_TARGET_RATIO to DefaultConfig.DEFAULT_TARGET_MS)
 
     data class StatsUi(
         val result: StatsResult,
@@ -52,19 +54,28 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
         val targetMs: Long,
     )
 
-    val ui: StateFlow<StatsUi> = combine(events, _period, _start, ticker, targets) { evs, p, s, now, (ratio, ms) ->
-        val end = TimeUtil.periodEnd(p, s)
-        StatsUi(
-            result = StatsCalculator.compute(evs, s, end, now, ratio, ms),
-            label = TimeUtil.periodLabel(p, s, minOf(now, end)),
-            period = p,
-            start = s,
-            isCurrentPeriod = now < end,
-            targetRatio = ratio,
-            targetMs = ms,
-        )
+    private data class Request(val period: StatPeriod, val start: Long, val now: Long, val ratio: Double, val ms: Long)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val ui: StateFlow<StatsUi> = combine(_period, _start, ticker, targets) { p, s, now, t ->
+        Request(p, s, now, t.first, t.second)
+    }.flatMapLatest { req ->
+        val end = TimeUtil.periodEnd(req.period, req.start)
+        // Bounded window: only the selected period's events + the boundary event.
+        // flowOn(Default) keeps the Room query + mapping + StatsCalculator off the UI thread.
+        repo.observeEventsInWindow(req.start, end).map { evs ->
+            StatsUi(
+                result = StatsCalculator.compute(evs, req.start, end, req.now, req.ratio, req.ms),
+                label = TimeUtil.periodLabel(req.period, req.start, minOf(req.now, end)),
+                period = req.period,
+                start = req.start,
+                isCurrentPeriod = req.now < end,
+                targetRatio = req.ratio,
+                targetMs = req.ms,
+            )
+        }.flowOn(Dispatchers.Default)
     }.stateIn(
-        viewModelScope, SharingStarted.Eagerly,
+        viewModelScope, SharingStarted.WhileSubscribed(5_000),
         StatsUi(StatsCalculator.compute(emptyList(), 0, 0, 0), "", StatPeriod.DAY, 0, true, 0.5, DefaultConfig.DEFAULT_TARGET_MS),
     )
 

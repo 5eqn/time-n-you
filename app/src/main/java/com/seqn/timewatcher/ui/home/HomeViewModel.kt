@@ -14,12 +14,15 @@ import com.seqn.timewatcher.tips.TipId
 import com.seqn.timewatcher.util.StatPeriod
 import com.seqn.timewatcher.util.TimeUtil
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -29,33 +32,42 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = AppGraph.repository(app)
 
     val stateDefs: StateFlow<List<StateDef>> =
-        repo.observeStateDefs().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        repo.observeStateDefs().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val events: StateFlow<List<StateEvent>> =
-        repo.observeEvents().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    /** Latest event only — drives the current-state card without loading the full event log. */
+    val latestEvent: StateFlow<StateEvent?> =
+        repo.observeLatestEvent().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val ticker: StateFlow<Long> = flow {
         while (true) {
             emit(System.currentTimeMillis())
             delay(20_000)
         }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, System.currentTimeMillis())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), System.currentTimeMillis())
 
     val targets: StateFlow<Pair<Double, Long>> = repo.observeSettings().map { s ->
         val ratio = s[DefaultConfig.SETTING_TARGET_RATIO]?.toDoubleOrNull() ?: DefaultConfig.DEFAULT_TARGET_RATIO
         val ms = s[DefaultConfig.SETTING_TARGET_MS]?.toLongOrNull() ?: DefaultConfig.DEFAULT_TARGET_MS
         ratio to ms
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, DefaultConfig.DEFAULT_TARGET_RATIO to DefaultConfig.DEFAULT_TARGET_MS)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DefaultConfig.DEFAULT_TARGET_RATIO to DefaultConfig.DEFAULT_TARGET_MS)
 
     val tipEnabled: StateFlow<Map<TipId, Boolean>> = repo.observeSettings().map { s ->
         TipId.entries.associateWith { s[DefaultConfig.SETTING_TIP_PREFIX + it.name] != "0" }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, TipId.entries.associateWith { true })
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TipId.entries.associateWith { true })
 
-    val todayStats: StateFlow<StatsResult> = combine(events, ticker, targets) { evs, now, (ratio, ms) ->
-        val start = TimeUtil.periodStart(StatPeriod.DAY, now)
-        val end = TimeUtil.periodEnd(StatPeriod.DAY, start)
-        StatsCalculator.compute(evs, start, end, now, ratio, ms)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, StatsCalculator.compute(emptyList(), 0, 0, 0))
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val todayStats: StateFlow<StatsResult> = combine(ticker, targets) { now, t -> now to t }
+        .flatMapLatest { (now, t) ->
+            val (ratio, ms) = t
+            val start = TimeUtil.periodStart(StatPeriod.DAY, now)
+            val end = TimeUtil.periodEnd(StatPeriod.DAY, start)
+            // Bounded window: only today's events + the boundary event, not the whole log.
+            // flowOn(Default) keeps the Room query + mapping + StatsCalculator off the UI thread.
+            repo.observeEventsInWindow(start, end).map { evs ->
+                StatsCalculator.compute(evs, start, end, now, ratio, ms)
+            }.flowOn(Dispatchers.Default)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StatsCalculator.compute(emptyList(), 0, 0, 0))
 
     private val missedChannel = Channel<String>(Channel.BUFFERED)
     val missed = missedChannel.receiveAsFlow()
@@ -70,6 +82,9 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             if (exit != null) missedChannel.trySend(exit.name)
             val version = BuildConfig.VERSION_NAME
             if (repo.getLastChangelogVersion() != version) {
+                // One-time v1.2 migrations: default 生活 note + move effective exit state back to 摆烂.
+                repo.ensureLifeNote()
+                repo.migrateExitToSlackIfEffective()
                 repo.setLastChangelogVersion(version)
                 changelogChannel.trySend(version)
             }

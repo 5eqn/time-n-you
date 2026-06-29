@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -83,6 +84,12 @@ fun SettingsScreen() {
     var pendingDelete by remember { mutableStateOf<StateDef?>(null) }
     val defaultName = stringResource(R.string.new_state_default_name)
 
+    val philosophyEnabled = tipEnabled[TipId.PHILOSOPHY] != false
+    // Stable callbacks so StateEditorRow can skip recomposition when its def is unchanged.
+    val onMove: (String, Int) -> Unit = remember(vm) { { id, delta -> vm.moveState(id, delta) } }
+    val onUpdate: (StateDef) -> Unit = remember(vm) { { d -> vm.updateState(d) } }
+    val requestDelete: (StateDef) -> Unit = remember { { d -> pendingDelete = d } }
+
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
@@ -109,34 +116,37 @@ fun SettingsScreen() {
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(vertical = 16.dp),
     ) {
-        // --- state list editor ---
+        // --- state list editor (lazy + keyed: only visible rows compose on the first nav frame) ---
         item {
-            SectionCard(stringResource(R.string.settings_states)) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    defs.forEachIndexed { index, def ->
-                        StateEditorRow(
-                            def = def,
-                            canMoveUp = index > 0,
-                            canMoveDown = index < defs.lastIndex,
-                            tipEnabled = tipEnabled,
-                            onMove = { delta -> vm.moveState(def.id, delta) },
-                            onDeleteRequest = { pendingDelete = def },
-                            onUpdate = vm::updateState,
-                        )
-                    }
-                    OutlinedButton(onClick = { vm.addState(defaultName) }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Filled.Add, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
-                        Text(stringResource(R.string.settings_add_state))
-                    }
-                }
+            Text(
+                stringResource(R.string.settings_states),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(start = 4.dp),
+            )
+        }
+        itemsIndexed(defs, key = { _, d -> d.id }) { index, def ->
+            StateEditorRow(
+                def = def,
+                canMoveUp = index > 0,
+                canMoveDown = index < defs.lastIndex,
+                philosophyEnabled = philosophyEnabled,
+                onMove = onMove,
+                onDeleteRequest = requestDelete,
+                onUpdate = onUpdate,
+            )
+        }
+        item {
+            OutlinedButton(onClick = { vm.addState(defaultName) }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Add, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.settings_add_state))
             }
         }
 
         // --- pomodoro ---
         item {
             SectionCard(stringResource(R.string.settings_pomodoro)) {
-                ExitStateSelector(defs = defs, selectedId = exitId, onSelect = vm::setExit)
+                ExitStateSelector(defs = defs, selectedId = exitId, philosophyEnabled = philosophyEnabled, onSelect = vm::setExit)
             }
         }
 
@@ -246,33 +256,39 @@ private fun StateEditorRow(
     def: StateDef,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
-    tipEnabled: Map<TipId, Boolean>,
-    onMove: (Int) -> Unit,
-    onDeleteRequest: () -> Unit,
+    philosophyEnabled: Boolean,
+    onMove: (String, Int) -> Unit,
+    onDeleteRequest: (StateDef) -> Unit,
     onUpdate: (StateDef) -> Unit,
 ) {
     var name by remember(def.id) { mutableStateOf(def.name) }
     var minutes by remember(def.id) { mutableStateOf(def.pomodoroMinutes.toString()) }
+    var note by remember(def.id) { mutableStateOf(def.note ?: "") }
     var pendingDef by remember(def.id) { mutableStateOf<StateDef?>(null) }
 
     // Only intercept the *transition into* an "effective but unmanaged" state.
     fun tryApply(newDef: StateDef) {
         val wasBad = Tips.triggersPhilosophy(def.category.name, def.pomodoroEnabled)
         val isBad = Tips.triggersPhilosophy(newDef.category.name, newDef.pomodoroEnabled)
-        if (!wasBad && isBad && tipEnabled[TipId.PHILOSOPHY] != false) {
+        if (!wasBad && isBad && philosophyEnabled) {
             pendingDef = newDef
         } else {
             onUpdate(newDef)
         }
     }
 
-    Surface(tonalElevation = 1.dp, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(14.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { onMove(-1) }, enabled = canMoveUp) {
+                IconButton(onClick = { onMove(def.id, -1) }, enabled = canMoveUp) {
                     Icon(Icons.Filled.ArrowUpward, contentDescription = "上移")
                 }
-                IconButton(onClick = { onMove(1) }, enabled = canMoveDown) {
+                IconButton(onClick = { onMove(def.id, 1) }, enabled = canMoveDown) {
                     Icon(Icons.Filled.ArrowDownward, contentDescription = "下移")
                 }
                 Box(Modifier.size(22.dp).clip(CircleShape).background(ColorUtil.colorFor(def.id)))
@@ -284,7 +300,7 @@ private fun StateEditorRow(
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = onDeleteRequest) {
+                IconButton(onClick = { onDeleteRequest(def) }) {
                     Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.state_delete))
                 }
             }
@@ -326,8 +342,15 @@ private fun StateEditorRow(
                     )
                 }
             }
+            Spacer(Modifier.size(8.dp))
+            OutlinedTextField(
+                value = note,
+                onValueChange = { note = it; onUpdate(def.copy(note = it.ifBlank { null })) },
+                label = { Text(stringResource(R.string.state_note)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
-    }
 
     pendingDef?.let { pd ->
         AlertDialog(
@@ -346,8 +369,14 @@ private fun StateEditorRow(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ExitStateSelector(defs: List<StateDef>, selectedId: String, onSelect: (String) -> Unit) {
+private fun ExitStateSelector(
+    defs: List<StateDef>,
+    selectedId: String,
+    philosophyEnabled: Boolean,
+    onSelect: (String) -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
+    var pending by remember { mutableStateOf<StateDef?>(null) }
     val selectedName = defs.firstOrNull { it.id == selectedId }?.name ?: "—"
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
@@ -360,9 +389,34 @@ private fun ExitStateSelector(defs: List<StateDef>, selectedId: String, onSelect
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             defs.forEach { d ->
-                DropdownMenuItem(text = { Text(d.name) }, onClick = { onSelect(d.id); expanded = false })
+                DropdownMenuItem(
+                    text = { Text(d.name) },
+                    onClick = {
+                        expanded = false
+                        // Item 15: setting an EFFECTIVE state as the pomodoro exit violates the design
+                        // philosophy — confirm via the same philosophy tip first.
+                        if (d.category == Category.EFFECTIVE && philosophyEnabled) {
+                            pending = d
+                        } else {
+                            onSelect(d.id)
+                        }
+                    },
+                )
             }
         }
+    }
+    pending?.let { pd ->
+        AlertDialog(
+            onDismissRequest = { pending = null },
+            title = { Text(Tips.philosophy.title, fontWeight = FontWeight.Bold) },
+            text = { Text(Tips.philosophy.message) },
+            confirmButton = {
+                TextButton(onClick = { onSelect(pd.id); pending = null }) { Text(stringResource(R.string.tip_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pending = null }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
     }
 }
 

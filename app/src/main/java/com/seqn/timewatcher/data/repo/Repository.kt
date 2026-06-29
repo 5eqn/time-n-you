@@ -20,6 +20,7 @@ import com.seqn.timewatcher.data.model.defaultStateDefs
 import com.seqn.timewatcher.data.model.fromString
 import com.seqn.timewatcher.pomodoro.PomodoroAlarm
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 
 /** Single source of truth for state defs, switch events, settings, targets, tips, and the pomodoro lifecycle. */
@@ -38,6 +39,24 @@ class Repository(
 
     fun observeEvents(): Flow<List<StateEvent>> =
         eventDao.observeAll().map { list -> list.map { it.toModel() } }
+
+    /** Events for a [start, end) window plus the single boundary event running across `start`,
+     *  ascending by timestamp. Bounds the stats computation to the visible window instead of
+     *  re-scanning the whole event log every tick. */
+    fun observeEventsInWindow(start: Long, end: Long): Flow<List<StateEvent>> =
+        combine(eventDao.observeBetween(start, end), eventDao.observeLatestBefore(start)) { inWindow, boundary ->
+            if (boundary == null) {
+                inWindow.map { it.toModel() }
+            } else {
+                ArrayList<StateEvent>(inWindow.size + 1).apply {
+                    add(boundary.toModel())
+                    inWindow.forEach { add(it.toModel()) }
+                }
+            }
+        }
+
+    fun observeLatestEvent(): Flow<StateEvent?> =
+        eventDao.observeLatest().map { it?.toModel() }
 
     fun observeSettings(): Flow<Map<String, String>> =
         settingDao.observeAll().map { list -> list.associate { it.key to it.value } }
@@ -220,6 +239,25 @@ class Repository(
         }
     }
 
+    /** Item 3: ensure 「生活」 carries its default note if missing (idempotent; runs on first open of v1.2). */
+    suspend fun ensureLifeNote() {
+        val life = stateDefDao.getById(DefaultConfig.ID_LIFE) ?: return
+        if (life.note.isNullOrEmpty()) {
+            stateDefDao.upsert(life.copy(note = DefaultConfig.DEFAULT_LIFE_NOTE))
+        }
+    }
+
+    /** Item 14: if the configured pomodoro exit state is an EFFECTIVE state and 摆烂 exists,
+     *  switch the exit to 摆烂 (effective exit states violate the design philosophy). */
+    suspend fun migrateExitToSlackIfEffective() {
+        val exitId = settingDao.get(DefaultConfig.SETTING_EXIT_STATE) ?: return
+        val exitDef = stateDefDao.getById(exitId) ?: return
+        if (Category.fromString(exitDef.category) != Category.EFFECTIVE) return
+        if (stateDefDao.getById(DefaultConfig.ID_SLACK) != null) {
+            settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, DefaultConfig.ID_SLACK))
+        }
+    }
+
     // ---- export / import ----
     suspend fun exportJson(now: Long): String = JsonCodec.toJson(buildBundle(now))
 
@@ -238,6 +276,7 @@ class Repository(
                         pomodoroEnabled = it.pomodoroEnabled,
                         pomodoroMinutes = it.pomodoroMinutes,
                         sortOrder = it.sortOrder,
+                        note = it.note,
                     )
                 },
                 pomodoroExitStateId = exitStateId(),
@@ -272,6 +311,7 @@ class Repository(
                         pomodoroEnabled = it.pomodoroEnabled,
                         pomodoroMinutes = it.pomodoroMinutes,
                         sortOrder = it.sortOrder,
+                        note = it.note,
                     )
                 },
             )

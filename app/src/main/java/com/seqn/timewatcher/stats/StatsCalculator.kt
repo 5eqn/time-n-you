@@ -43,27 +43,27 @@ object StatsCalculator {
         val cap = minOf(now, periodEnd)
 
         // Pre-seed per-day buckets for every day in range (so charts show empty days too).
-        val perDayMap = LinkedHashMap<LocalDate, DayStat>()
+        val perDayMap = LinkedHashMap<LocalDate, DayAcc>()
         var dayCursor = Instant.ofEpochMilli(periodStart).atZone(zone).toLocalDate()
         while (dayCursor.atStartOfDay(zone).toInstant().toEpochMilli() < cap) {
-            perDayMap[dayCursor] = DayStat(dayCursor, 0, 0, 0, 0)
+            perDayMap[dayCursor] = DayAcc()
             dayCursor = dayCursor.plusDays(1)
         }
 
         if (events.isEmpty()) {
-            return StatsResult(0, 0, 0, 0, 0, 0.0, false, emptyList(), perDayMap.values.toList())
+            return StatsResult(0, 0, 0, 0, 0, 0.0, false, emptyList(), perDayMap.toDayStats())
         }
 
-        val sorted = events.sortedBy { it.timestamp }
+        // events are already timestamp-ascending (DAO-ordered / windowed); no re-sort needed.
         var total = 0L
         var rest = 0L
         var effective = 0L
         var waste = 0L
         val perStateMap = LinkedHashMap<String, StateStat>()
 
-        for (i in sorted.indices) {
-            val e = sorted[i]
-            val end = if (i + 1 < sorted.size) sorted[i + 1].timestamp else now
+        for (i in events.indices) {
+            val e = events[i]
+            val end = if (i + 1 < events.size) events[i + 1].timestamp else now
             val a = maxOf(e.timestamp, periodStart)
             val b = minOf(end, cap)
             if (a >= b) continue
@@ -79,13 +79,13 @@ object StatsCalculator {
             val prev = perStateMap[e.stateId]
             perStateMap[e.stateId] = StateStat(e.stateId, e.stateName, e.category, (prev?.ms ?: 0) + dur)
 
-            // per-day split at local midnight
+            // per-day split at local midnight — mutate the accumulator in place (no copy()).
             splitByDay(a, b, zone).forEach { (day, d) ->
-                val ds = perDayMap[day] ?: DayStat(day, 0, 0, 0, 0).also { perDayMap[day] = it }
-                perDayMap[day] = when (e.category) {
-                    Category.REST -> ds.copy(restMs = ds.restMs + d)
-                    Category.EFFECTIVE -> ds.copy(effectiveMs = ds.effectiveMs + d, availableMs = ds.availableMs + d)
-                    Category.WASTE -> ds.copy(wasteMs = ds.wasteMs + d, availableMs = ds.availableMs + d)
+                val acc = perDayMap.getOrPut(day) { DayAcc() }
+                when (e.category) {
+                    Category.REST -> acc.restMs += d
+                    Category.EFFECTIVE -> { acc.effectiveMs += d; acc.availableMs += d }
+                    Category.WASTE -> { acc.wasteMs += d; acc.availableMs += d }
                 }
             }
         }
@@ -103,9 +103,22 @@ object StatsCalculator {
             utilization = utilization,
             isExcellent = isExcellent,
             perState = perStateMap.values.sortedByDescending { it.ms },
-            perDay = perDayMap.values.sortedBy { it.date },
+            perDay = perDayMap.toDayStats(),
         )
     }
+
+    /** Mutable per-day accumulator — avoids a DayStat copy() on every event segment. */
+    private class DayAcc(
+        var effectiveMs: Long = 0L,
+        var wasteMs: Long = 0L,
+        var restMs: Long = 0L,
+        var availableMs: Long = 0L,
+    )
+
+    private fun LinkedHashMap<LocalDate, DayAcc>.toDayStats(): List<DayStat> =
+        entries.sortedBy { it.key }.map { (date, acc) ->
+            DayStat(date, acc.effectiveMs, acc.wasteMs, acc.restMs, acc.availableMs)
+        }
 
     private fun splitByDay(a: Long, b: Long, zone: ZoneId): List<Pair<LocalDate, Long>> {
         val out = ArrayList<Pair<LocalDate, Long>>()

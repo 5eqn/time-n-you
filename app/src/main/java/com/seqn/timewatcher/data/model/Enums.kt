@@ -24,6 +24,9 @@ object DefaultConfig {
     const val DEFAULT_POMODORO_MINUTES = 30
     const val SNOOZE_POMODORO_MINUTES = 5
 
+    /** Default note auto-added to 「生活」 on first open of v1.2 (and for fresh installs). */
+    const val DEFAULT_LIFE_NOTE = "吃饭、洗漱、运动……"
+
     // --- configurable "优秀" targets ---
     const val DEFAULT_TARGET_RATIO = 0.5
     val DEFAULT_TARGET_MS: Long = 6L * 3_600_000L  // 6 hours
@@ -43,6 +46,7 @@ data class StateDef(
     val pomodoroEnabled: Boolean,
     val pomodoroMinutes: Int,
     val sortOrder: Int,
+    val note: String? = null,
 )
 
 /** An immutable state-switch record. Carries name/category snapshots so editing a state
@@ -62,7 +66,7 @@ fun Category.Companion.fromString(s: String?): Category =
 
 fun defaultStateDefs(): List<StateDef> = listOf(
     StateDef(DefaultConfig.ID_SLEEP, "睡觉", Category.REST, pomodoroEnabled = false, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 0),
-    StateDef(DefaultConfig.ID_LIFE, "生活", Category.REST, pomodoroEnabled = false, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 1),
+    StateDef(DefaultConfig.ID_LIFE, "生活", Category.REST, pomodoroEnabled = false, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 1, note = DefaultConfig.DEFAULT_LIFE_NOTE),
     StateDef(DefaultConfig.ID_WORK, "主业", Category.EFFECTIVE, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 2),
     StateDef(DefaultConfig.ID_HOBBY, "爱好", Category.EFFECTIVE, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 3),
     StateDef(DefaultConfig.ID_SNOOZE, "小憩", Category.REST, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.SNOOZE_POMODORO_MINUTES, sortOrder = 4),

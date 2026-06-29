@@ -1,6 +1,7 @@
 package com.seqn.timewatcher.ui.home
 
 import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,7 +19,6 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -29,6 +29,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -52,17 +54,12 @@ import kotlin.math.roundToInt
 fun HomeScreen() {
     val vm: HomeViewModel = viewModel()
     val defs by vm.stateDefs.collectAsStateWithLifecycle()
-    val events by vm.events.collectAsStateWithLifecycle()
+    val latest by vm.latestEvent.collectAsStateWithLifecycle()
     val today by vm.todayStats.collectAsStateWithLifecycle()
     val tipEnabled by vm.tipEnabled.collectAsStateWithLifecycle()
-    val now by rememberNowTick(1_000)
     val context = LocalContext.current
 
-    val latest = events.lastOrNull()
     val currentDef: StateDef? = latest?.let { l -> defs.firstOrNull { it.id == l.stateId } }
-    val elapsed = latest?.let { now - it.timestamp } ?: 0L
-    val remaining = latest?.pomodoroEndTs?.let { it - now } ?: Long.MAX_VALUE
-    val pomodoroActive = latest != null && latest.pomodoroEndTs != null && remaining > 0
     val maxStateMs = today.perState.maxOfOrNull { it.ms }?.coerceAtLeast(1L) ?: 1L
 
     // Intercepting tip: holds the (tip, target stateId) awaiting user confirmation.
@@ -76,12 +73,14 @@ fun HomeScreen() {
     }
     LaunchedEffect(Unit) { vm.changelog.collect { showChangelog = true } }
 
-    val onStateTap: (StateDef) -> Unit = { def ->
-        val tipId = Tips.stateTip[def.id]
-        if (tipId != null && tipEnabled[tipId] != false) {
-            pendingTip = tipId to def.id
-        } else {
-            vm.switchState(def.id)
+    val onStateTap: (StateDef) -> Unit = remember(tipEnabled, vm) {
+        { def ->
+            val tipId = Tips.stateTip[def.id]
+            if (tipId != null && tipEnabled[tipId] != false) {
+                pendingTip = tipId to def.id
+            } else {
+                vm.switchState(def.id)
+            }
         }
     }
 
@@ -94,9 +93,6 @@ fun HomeScreen() {
             CurrentStateCard(
                 latest = latest,
                 currentDef = currentDef,
-                elapsed = elapsed,
-                remaining = remaining,
-                pomodoroActive = pomodoroActive,
             )
         }
         item {
@@ -189,43 +185,61 @@ fun HomeScreen() {
 private fun CurrentStateCard(
     latest: StateEvent?,
     currentDef: StateDef?,
-    elapsed: Long,
-    remaining: Long,
-    pomodoroActive: Boolean,
 ) {
+    // "now" ticks every second (always) — drives the live elapsed/countdown. Read here, not at
+    // the screen root, so only this small card recomposes per tick.
+    val nowState = rememberNowTick(1_000L)
+    // Bump "now" immediately on a state switch so elapsed/remaining are never briefly stale.
+    LaunchedEffect(latest?.id) {
+        nowState.longValue = System.currentTimeMillis()
+    }
+    val now by nowState
+    val elapsed = (latest?.let { now - it.timestamp } ?: 0L).coerceAtLeast(0L)
+    val remaining = latest?.pomodoroEndTs?.let { it - now } ?: Long.MAX_VALUE
+    val pomodoroActive = latest != null && latest.pomodoroEndTs != null && remaining > 0
+    val note = currentDef?.note?.takeIf { it.isNotBlank() }
+
     val name = latest?.stateName ?: "—"
     val seed = currentDef?.id ?: latest?.stateId ?: "default"
     val bg = ColorUtil.colorFor(seed)
     val onColor = ColorUtil.OnFill
-    Surface(
-        color = bg,
-        contentColor = onColor,
-        shape = RoundedCornerShape(28.dp),
-        modifier = Modifier.fillMaxWidth(),
+
+    // Lean: flat Column with a clipped background (no Surface/shadow overhead per frame).
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(28.dp))
+            .background(bg)
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(name, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
-            if (latest == null) {
-                Text(stringResource(R.string.no_state_yet))
-            } else {
-                Text(
-                    "${stringResource(R.string.elapsed)}  ${TimeUtil.formatElapsed(elapsed)}",
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                if (pomodoroActive) {
-                    Spacer(Modifier.height(6.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Timer, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "${stringResource(R.string.remaining)} ${TimeUtil.formatClock(remaining)}",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                }
-            }
+        Text(name, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = onColor)
+        if (note != null) {
+            Text(note, style = MaterialTheme.typography.bodyMedium, color = onColor.copy(alpha = 0.85f))
+        }
+        Spacer(Modifier.height(10.dp))
+        if (latest == null) {
+            Text(stringResource(R.string.no_state_yet), color = onColor)
+        } else if (pomodoroActive) {
+            // Item 7: prominent countdown with the current wall-clock time beside it.
+            Text(
+                TimeUtil.formatClock(remaining),
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = onColor,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "${TimeUtil.formatWallClock(now)}  ·  ${stringResource(R.string.elapsed)} ${TimeUtil.formatElapsed(elapsed)}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = onColor.copy(alpha = 0.9f),
+            )
+        } else {
+            Text(
+                "${stringResource(R.string.elapsed)}  ${TimeUtil.formatElapsed(elapsed)}",
+                style = MaterialTheme.typography.bodyLarge,
+                color = onColor,
+            )
         }
     }
 }

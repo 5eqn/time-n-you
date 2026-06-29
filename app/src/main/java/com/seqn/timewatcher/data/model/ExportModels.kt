@@ -12,6 +12,7 @@ data class ExportStateDef(
     val pomodoroEnabled: Boolean,
     val pomodoroMinutes: Int,
     val sortOrder: Int,
+    val note: String? = null,
 )
 
 data class ExportEvent(

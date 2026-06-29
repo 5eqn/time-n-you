@@ -85,6 +85,12 @@ object TimeUtil {
         return "%02d:%02d".format(m, s)
     }
 
+    /** Wall-clock "H:mm" (24h) for the given epoch-millis, e.g. 14:05. */
+    fun formatWallClock(ms: Long): String {
+        val m = Instant.ofEpochMilli(ms).atZone(zone()).toLocalTime()
+        return "%d:%02d".format(m.hour, m.minute)
+    }
+
     /** Short elapsed like "1时5分" or "12分" or "45秒". */
     fun formatElapsed(ms: Long): String {
         if (ms < 60_000) return "${ms / 1000}秒"

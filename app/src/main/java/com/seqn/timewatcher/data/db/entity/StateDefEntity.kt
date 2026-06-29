@@ -15,6 +15,7 @@ data class StateDefEntity(
     @ColumnInfo(name = "pomodoro_enabled") val pomodoroEnabled: Boolean,
     @ColumnInfo(name = "pomodoro_minutes") val pomodoroMinutes: Int,
     @ColumnInfo(name = "sort_order") val sortOrder: Int,
+    @ColumnInfo(name = "note") val note: String?,
 )
 
 fun StateDefEntity.toModel(): StateDef = StateDef(
@@ -24,6 +25,7 @@ fun StateDefEntity.toModel(): StateDef = StateDef(
     pomodoroEnabled = pomodoroEnabled,
     pomodoroMinutes = pomodoroMinutes,
     sortOrder = sortOrder,
+    note = note,
 )
 
 fun StateDef.toEntity(): StateDefEntity = StateDefEntity(
@@ -33,4 +35,5 @@ fun StateDef.toEntity(): StateDefEntity = StateDefEntity(
     pomodoroEnabled = pomodoroEnabled,
     pomodoroMinutes = pomodoroMinutes,
     sortOrder = sortOrder,
+    note = note,
 )

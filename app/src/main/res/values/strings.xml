@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">时间观察者</string>
+    <string name="app_name">时间&amp;你</string>
 
     <!-- Bottom navigation -->
     <string name="nav_home">首页</string>
@@ -54,6 +54,7 @@
     <string name="settings_import">导入数据</string>
     <string name="settings_add_state">添加状态</string>
     <string name="state_name">名称</string>
+    <string name="state_note">备注（显示在首页）</string>
     <string name="state_category">统计类别</string>
     <string name="state_pomodoro_enable">应用番茄钟</string>
     <string name="state_pomodoro_minutes">番茄钟时长（分钟）</string>
@@ -78,6 +79,8 @@
     <string name="notif_pomodoro_title">番茄结束！</string>
     <string name="notif_pomodoro_text">已切换到「%1$s」，建议起身运动一下。</string>
     <string name="missed_pomodoro_toast">番茄钟在应用关闭期间结束，已自动切换状态。</string>
+    <string name="alarm_title">番茄结束</string>
+    <string name="stop_alarm">停止</string>
 
     <string name="new_state_default_name">新状态</string>
 </resources>

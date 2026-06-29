@@ -20,6 +20,18 @@ interface EventDao {
     @Query("SELECT * FROM state_event ORDER BY timestamp ASC")
     fun observeAll(): Flow<List<StateEventEntity>>
 
+    /** Events inside [start, end), ordered ascending — the bounded window used for stats. */
+    @Query("SELECT * FROM state_event WHERE timestamp >= :start AND timestamp < :end ORDER BY timestamp ASC")
+    fun observeBetween(start: Long, end: Long): Flow<List<StateEventEntity>>
+
+    /** The single latest event before [start] (the state that was running across the period boundary). */
+    @Query("SELECT * FROM state_event WHERE timestamp < :start ORDER BY timestamp DESC LIMIT 1")
+    fun observeLatestBefore(start: Long): Flow<StateEventEntity?>
+
+    /** The most recent event overall — drives the Home "current state" card without loading all history. */
+    @Query("SELECT * FROM state_event ORDER BY timestamp DESC LIMIT 1")
+    fun observeLatest(): Flow<StateEventEntity?>
+
     @Query("SELECT * FROM state_event ORDER BY timestamp ASC")
     suspend fun getAll(): List<StateEventEntity>
 

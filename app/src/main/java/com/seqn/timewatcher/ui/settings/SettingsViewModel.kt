@@ -20,20 +20,20 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = AppGraph.repository(app)
 
     val stateDefs: StateFlow<List<StateDef>> =
-        repo.observeStateDefs().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        repo.observeStateDefs().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _exitStateId = MutableStateFlow(DefaultConfig.DEFAULT_EXIT_STATE_ID)
     val exitStateId: StateFlow<String> = _exitStateId
 
     val tipEnabled: StateFlow<Map<TipId, Boolean>> = repo.observeSettings().map { s ->
         TipId.entries.associateWith { s[DefaultConfig.SETTING_TIP_PREFIX + it.name] != "0" }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, TipId.entries.associateWith { true })
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TipId.entries.associateWith { true })
 
     val targets: StateFlow<Pair<Double, Long>> = repo.observeSettings().map { s ->
         val ratio = s[DefaultConfig.SETTING_TARGET_RATIO]?.toDoubleOrNull() ?: DefaultConfig.DEFAULT_TARGET_RATIO
         val ms = s[DefaultConfig.SETTING_TARGET_MS]?.toLongOrNull() ?: DefaultConfig.DEFAULT_TARGET_MS
         ratio to ms
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, DefaultConfig.DEFAULT_TARGET_RATIO to DefaultConfig.DEFAULT_TARGET_MS)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DefaultConfig.DEFAULT_TARGET_RATIO to DefaultConfig.DEFAULT_TARGET_MS)
 
     init {
         viewModelScope.launch(Dispatchers.IO) { _exitStateId.value = repo.getExitStateId() }

@@ -1,5 +1,6 @@
 package com.seqn.timewatcher.ui.stats
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +30,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -175,62 +178,59 @@ private fun PeriodNav(label: String, isCurrent: Boolean, onPrev: () -> Unit, onN
 
 @Composable
 private fun StatTile(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
-    Surface(
-        tonalElevation = 1.dp,
-        shape = RoundedCornerShape(16.dp),
-        modifier = modifier,
+    Column(
+        modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(14.dp),
     ) {
-        Column(Modifier.padding(14.dp)) {
-            Box(Modifier.size(10.dp).clip(CircleShape).background(color))
-            Spacer(Modifier.height(6.dp))
-            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        }
+        Box(Modifier.size(10.dp).clip(CircleShape).background(color))
+        Spacer(Modifier.height(6.dp))
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
 private fun DailyBars(days: List<DayStat>) {
+    if (days.isEmpty()) return
     val maxAvailable = (days.maxOfOrNull { it.availableMs } ?: 0L).coerceAtLeast(1L)
+    val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+    val effColor = MaterialTheme.colorScheme.primary
     val maxHeight = 120.dp
+    val showLabels = days.size <= 31 // skip per-day labels for YEAR (too many)
+
     Column(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().height(maxHeight + 20.dp), verticalAlignment = Alignment.Bottom) {
-            days.forEach { d ->
+        // All bars drawn in one Canvas — one composable regardless of day count (vs ~2N Boxes).
+        Canvas(Modifier.fillMaxWidth().height(maxHeight)) {
+            val n = days.size
+            val gap = 2.dp.toPx()
+            val barW = ((size.width - gap * (n - 1)) / n).coerceAtLeast(1f)
+            val maxH = maxHeight.toPx()
+            val bottom = size.height
+            days.forEachIndexed { i, d ->
                 val ratio = d.availableMs.toFloat() / maxAvailable.toFloat()
-                Column(
-                    Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Bottom,
-                ) {
-                    Box(
-                        Modifier
-                            .height(maxHeight * ratio.coerceAtLeast(0.02f))
-                            .width(18.dp)
-                            .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)),
-                        contentAlignment = Alignment.BottomCenter,
-                    ) {
-                        val effFrac = if (d.availableMs > 0) d.effectiveMs.toFloat() / d.availableMs.toFloat() else 0f
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .fillMaxHeight(effFrac.coerceIn(0f, 1f))
-                                .background(MaterialTheme.colorScheme.primary),
-                        )
-                    }
+                val h = maxH * ratio.coerceAtLeast(0.02f)
+                val x = i * (barW + gap)
+                drawRect(trackColor, topLeft = Offset(x, bottom - h), size = Size(barW, h))
+                if (d.availableMs > 0 && d.effectiveMs > 0) {
+                    val effFrac = (d.effectiveMs.toFloat() / d.availableMs.toFloat()).coerceIn(0f, 1f)
+                    drawRect(effColor, topLeft = Offset(x, bottom - h * effFrac), size = Size(barW, h * effFrac))
                 }
             }
         }
-        Spacer(Modifier.height(4.dp))
-        Row(Modifier.fillMaxWidth()) {
-            days.forEachIndexed { i, d ->
-                Text(
-                    if (i == days.lastIndex) "今" else d.date.dayOfMonth.toString(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
+        if (showLabels) {
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth()) {
+                days.forEachIndexed { i, d ->
+                    Text(
+                        if (i == days.lastIndex) "今" else d.date.dayOfMonth.toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
             }
         }
     }
