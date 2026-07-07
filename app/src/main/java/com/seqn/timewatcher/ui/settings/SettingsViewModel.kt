@@ -65,6 +65,9 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun setTargetRatio(ratio: Double) = viewModelScope.launch(Dispatchers.IO) { repo.setTargetRatio(ratio) }
     fun setTargetMs(ms: Long) = viewModelScope.launch(Dispatchers.IO) { repo.setTargetMs(ms) }
+    fun addManualEvent(stateId: String, timestamp: Long) = viewModelScope.launch(Dispatchers.IO) {
+        repo.addManualEvent(stateId, timestamp)
+    }
 
     fun resetDefaults() = viewModelScope.launch(Dispatchers.IO) {
         repo.resetToDefaultConfig()

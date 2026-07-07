@@ -82,7 +82,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             if (exit != null) missedChannel.trySend(exit.name)
             val version = BuildConfig.VERSION_NAME
             if (repo.getLastChangelogVersion() != version) {
-                // One-time v1.2 migrations: default 生活 note + move effective exit state back to 摆烂.
+                // One-time version migrations: default 生活 note + move effective exit state back to 摆烂.
                 repo.ensureLifeNote()
                 repo.migrateExitToSlackIfEffective()
                 repo.setLastChangelogVersion(version)

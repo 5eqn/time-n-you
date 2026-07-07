@@ -52,6 +52,7 @@
     <string name="settings_reset">恢复默认设置</string>
     <string name="settings_export">导出数据</string>
     <string name="settings_import">导入数据</string>
+    <string name="settings_backfill">补卡</string>
     <string name="settings_add_state">添加状态</string>
     <string name="state_name">名称</string>
     <string name="state_note">备注（显示在首页）</string>
@@ -73,6 +74,12 @@
     <string name="import_failed">导入失败：文件格式不正确</string>
     <string name="delete_state_title">删除该状态？</string>
     <string name="delete_state_msg">历史记录中的该状态会保留，但不再显示在主界面。</string>
+    <string name="backfill_title">补卡</string>
+    <string name="backfill_state">状态</string>
+    <string name="backfill_date">日期</string>
+    <string name="backfill_time">时间</string>
+    <string name="backfill_done">补卡完成</string>
+    <string name="backfill_future_error">不能补到未来时间。</string>
 
     <!-- Pomodoro notifications -->
     <string name="notif_channel_pomodoro">番茄钟提醒</string>

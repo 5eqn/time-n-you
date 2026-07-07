@@ -1,5 +1,7 @@
 package com.seqn.timewatcher.ui.settings
 
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -85,6 +87,10 @@ import com.seqn.timewatcher.tips.Tips
 import com.seqn.timewatcher.ui.components.SectionCard
 import com.seqn.timewatcher.util.ColorUtil
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun SettingsScreen() {
@@ -99,6 +105,7 @@ fun SettingsScreen() {
 
     var showReset by remember { mutableStateOf(false) }
     var showImport by remember { mutableStateOf(false) }
+    var showBackfill by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<StateDef?>(null) }
     val defaultName = stringResource(R.string.new_state_default_name)
 
@@ -220,6 +227,11 @@ fun SettingsScreen() {
         item {
             SectionCard(null) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = { showBackfill = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.settings_backfill))
+                    }
                     Button(onClick = { showReset = true }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Filled.Refresh, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
@@ -268,6 +280,17 @@ fun SettingsScreen() {
             onDismiss = { showImport = false },
         )
     }
+    if (showBackfill) {
+        BackfillDialog(
+            defs = defs,
+            onConfirm = { stateId, timestamp ->
+                vm.addManualEvent(stateId, timestamp)
+                Toast.makeText(context, R.string.backfill_done, Toast.LENGTH_SHORT).show()
+                showBackfill = false
+            },
+            onDismiss = { showBackfill = false },
+        )
+    }
     pendingDelete?.let { def ->
         ConfirmDialog(
             title = stringResource(R.string.delete_state_title),
@@ -276,6 +299,134 @@ fun SettingsScreen() {
             onDismiss = { pendingDelete = null },
         )
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BackfillDialog(
+    defs: List<StateDef>,
+    onConfirm: (String, Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val zone = remember { ZoneId.systemDefault() }
+    var selectedAt by remember { mutableStateOf(System.currentTimeMillis()) }
+    var selectedStateId by remember(defs) { mutableStateOf(defs.firstOrNull()?.id.orEmpty()) }
+    var stateExpanded by remember { mutableStateOf(false) }
+    var showFutureError by remember { mutableStateOf(false) }
+    val selectedStateName = defs.firstOrNull { it.id == selectedStateId }?.name ?: "—"
+    val localDateTime = Instant.ofEpochMilli(selectedAt).atZone(zone).toLocalDateTime()
+
+    fun updateSelectedAt(dateTime: LocalDateTime) {
+        selectedAt = dateTime.atZone(zone).toInstant().toEpochMilli()
+        showFutureError = false
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.backfill_title), fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ExposedDropdownMenuBox(expanded = stateExpanded, onExpandedChange = { stateExpanded = it }) {
+                    OutlinedTextField(
+                        value = selectedStateName,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text(stringResource(R.string.backfill_state)) },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(stateExpanded) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                    )
+                    ExposedDropdownMenu(expanded = stateExpanded, onDismissRequest = { stateExpanded = false }) {
+                        defs.forEach { def ->
+                            DropdownMenuItem(
+                                text = { Text(def.name) },
+                                onClick = {
+                                    selectedStateId = def.id
+                                    stateExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = {
+                            DatePickerDialog(
+                                context,
+                                { _, year, month, dayOfMonth ->
+                                    updateSelectedAt(
+                                        LocalDateTime.of(
+                                            year,
+                                            month + 1,
+                                            dayOfMonth,
+                                            localDateTime.hour,
+                                            localDateTime.minute,
+                                        ),
+                                    )
+                                },
+                                localDateTime.year,
+                                localDateTime.monthValue - 1,
+                                localDateTime.dayOfMonth,
+                            ).apply {
+                                datePicker.maxDate = System.currentTimeMillis()
+                            }.show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("${stringResource(R.string.backfill_date)} ${formatBackfillDate(selectedAt, zone)}")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            TimePickerDialog(
+                                context,
+                                { _, hourOfDay, minute ->
+                                    updateSelectedAt(
+                                        LocalDateTime.of(
+                                            localDateTime.year,
+                                            localDateTime.monthValue,
+                                            localDateTime.dayOfMonth,
+                                            hourOfDay,
+                                            minute,
+                                        ),
+                                    )
+                                },
+                                localDateTime.hour,
+                                localDateTime.minute,
+                                true,
+                            ).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("${stringResource(R.string.backfill_time)} ${formatBackfillTime(selectedAt, zone)}")
+                    }
+                }
+                if (showFutureError) {
+                    Text(
+                        stringResource(R.string.backfill_future_error),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = defs.isNotEmpty(),
+                onClick = {
+                    if (selectedAt > System.currentTimeMillis()) {
+                        showFutureError = true
+                    } else {
+                        onConfirm(selectedStateId, selectedAt)
+                    }
+                },
+            ) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
 }
 
 @Composable
@@ -463,6 +614,15 @@ private fun categoryLabel(c: Category): String = when (c) {
     Category.EFFECTIVE -> "有效"
     Category.WASTE -> "无效"
 }
+
+private val backfillDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+private val backfillTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+
+private fun formatBackfillDate(ms: Long, zone: ZoneId): String =
+    Instant.ofEpochMilli(ms).atZone(zone).format(backfillDateFormatter)
+
+private fun formatBackfillTime(ms: Long, zone: ZoneId): String =
+    Instant.ofEpochMilli(ms).atZone(zone).format(backfillTimeFormatter)
 
 @Composable
 private fun AlarmDebugSection(

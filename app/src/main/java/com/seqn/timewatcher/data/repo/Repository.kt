@@ -145,6 +145,27 @@ class Repository(
         return event.copy(id = newId).toModel()
     }
 
+    /** Adds a manual correction event at [timestamp]. This intentionally does not apply a
+     *  pomodoro; it is a history edit used to repair stats. */
+    suspend fun addManualEvent(stateId: String, timestamp: Long): StateEvent? {
+        val def = stateDefDao.getById(stateId) ?: return null
+        val latest = eventDao.getLatest()
+        val becomesLatest = latest == null || timestamp >= latest.timestamp
+        val event = StateEventEntity(
+            stateId = def.id,
+            stateName = def.name,
+            category = def.category,
+            timestamp = timestamp,
+            pomodoroEndTs = null,
+            pomodoroApplied = false,
+        )
+        val newId = eventDao.insert(event)
+        if (becomesLatest) {
+            alarm.cancel()
+        }
+        return event.copy(id = newId).toModel()
+    }
+
     /** If the active pomodoro has already ended (and nothing newer exists), switch to the exit
      *  state. Returns the exit StateDef when it fired, else null. */
     suspend fun reconcilePomodoro(now: Long): StateDef? {
