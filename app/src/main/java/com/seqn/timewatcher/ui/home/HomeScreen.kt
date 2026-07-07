@@ -148,6 +148,8 @@ fun HomeScreen() {
                 selected = latest?.stateId == def.id,
                 showPomodoro = def.pomodoroEnabled,
                 onClick = { onStateTap(def) },
+                note = def.note,
+                pomodoroMinutes = def.pomodoroMinutes,
             )
         }
     }
@@ -197,8 +199,6 @@ private fun CurrentStateCard(
     val elapsed = (latest?.let { now - it.timestamp } ?: 0L).coerceAtLeast(0L)
     val remaining = latest?.pomodoroEndTs?.let { it - now } ?: Long.MAX_VALUE
     val pomodoroActive = latest != null && latest.pomodoroEndTs != null && remaining > 0
-    val note = currentDef?.note?.takeIf { it.isNotBlank() }
-
     val name = latest?.stateName ?: "—"
     val seed = currentDef?.id ?: latest?.stateId ?: "default"
     val bg = ColorUtil.colorFor(seed)
@@ -214,32 +214,28 @@ private fun CurrentStateCard(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(name, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = onColor)
-        if (note != null) {
-            Text(note, style = MaterialTheme.typography.bodyMedium, color = onColor.copy(alpha = 0.85f))
-        }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         if (latest == null) {
             Text(stringResource(R.string.no_state_yet), color = onColor)
-        } else if (pomodoroActive) {
-            // Item 7: prominent countdown with the current wall-clock time beside it.
-            Text(
-                TimeUtil.formatClock(remaining),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = onColor,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "${TimeUtil.formatWallClock(now)}  ·  ${stringResource(R.string.elapsed)} ${TimeUtil.formatElapsed(elapsed)}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = onColor.copy(alpha = 0.9f),
-            )
         } else {
             Text(
                 "${stringResource(R.string.elapsed)}  ${TimeUtil.formatElapsed(elapsed)}",
                 style = MaterialTheme.typography.bodyLarge,
                 color = onColor,
             )
+            if (pomodoroActive) {
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Timer, contentDescription = null, tint = onColor)
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "${stringResource(R.string.remaining)} ${TimeUtil.formatClock(remaining)}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = onColor,
+                    )
+                }
+            }
         }
     }
 }
