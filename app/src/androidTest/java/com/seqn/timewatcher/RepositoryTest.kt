@@ -23,7 +23,7 @@ class RepositoryTest {
     private var cancelCount = 0
 
     private val fakeAlarm = object : PomodoroAlarm {
-        override fun schedule(endTs: Long) { scheduled += endTs }
+        override fun schedule(endTs: Long, isTest: Boolean) { scheduled += endTs }
         override fun cancel() { cancelCount++ }
     }
 
@@ -43,9 +43,35 @@ class RepositoryTest {
     }
 
     @Test
-    fun seeding_creates_six_default_states() = runBlocking {
-        assertThat(repo.getStateDefs()).hasSize(6)
+    fun seeding_creates_seven_default_states() = runBlocking {
+        assertThat(repo.getStateDefs()).hasSize(7)
         assertThat(repo.getExitStateId()).isEqualTo(DefaultConfig.DEFAULT_EXIT_STATE_ID)
+    }
+
+    @Test
+    fun migrate_dog_state_removes_chores_and_rewrites_history() = runBlocking {
+        repo.upsertStateDef(
+            com.seqn.timewatcher.data.model.StateDef(
+                id = "chores",
+                name = "家务杂活",
+                category = com.seqn.timewatcher.data.model.Category.WASTE,
+                pomodoroEnabled = false,
+                pomodoroMinutes = 15,
+                sortOrder = 99,
+            ),
+        )
+        repo.addManualEvent("chores", 1_000L)
+
+        repo.migrateDogState()
+
+        val defs = repo.getStateDefs()
+        assertThat(defs.any { it.name.contains("杂活") }).isFalse()
+        assertThat(defs.any { it.id == DefaultConfig.ID_DOG && it.name == "喂狗" }).isTrue()
+
+        val events = repo.getEvents()
+        assertThat(events.single().stateId).isEqualTo(DefaultConfig.ID_DOG)
+        assertThat(events.single().stateName).isEqualTo("喂狗")
+        assertThat(events.single().category).isEqualTo(com.seqn.timewatcher.data.model.Category.EFFECTIVE)
     }
 
     @Test

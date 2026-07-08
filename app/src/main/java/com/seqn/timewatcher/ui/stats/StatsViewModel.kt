@@ -65,7 +65,15 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
         // flowOn(Default) keeps the Room query + mapping + StatsCalculator off the UI thread.
         repo.observeEventsInWindow(req.start, end).map { evs ->
             StatsUi(
-                result = StatsCalculator.compute(evs, req.start, end, req.now, req.ratio, req.ms),
+                result = StatsCalculator.compute(
+                    events = evs,
+                    periodStart = req.start,
+                    periodEnd = end,
+                    now = req.now,
+                    period = req.period,
+                    targetRatio = req.ratio,
+                    targetMs = req.ms,
+                ),
                 label = TimeUtil.periodLabel(req.period, req.start, minOf(req.now, end)),
                 period = req.period,
                 start = req.start,

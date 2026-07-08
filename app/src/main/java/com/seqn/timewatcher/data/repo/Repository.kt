@@ -275,6 +275,39 @@ class Repository(
         }
     }
 
+    /** v1.3.1: replace old 「杂活」 states/history with the built-in 「喂狗」 state. */
+    suspend fun migrateDogState() {
+        dbRef.withTransaction {
+            val all = stateDefDao.getAll()
+            val existingDog = all.firstOrNull { it.name == "喂狗" }
+            val dogDef = (existingDog ?: stateDefDao.getById(DefaultConfig.ID_DOG) ?: StateDefEntity(
+                id = DefaultConfig.ID_DOG,
+                name = "喂狗",
+                category = Category.EFFECTIVE.name,
+                pomodoroEnabled = true,
+                pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES,
+                sortOrder = (all.maxOfOrNull { it.sortOrder } ?: -1) + 1,
+                note = DefaultConfig.DEFAULT_DOG_NOTE,
+            )).copy(
+                name = "喂狗",
+                category = Category.EFFECTIVE.name,
+                pomodoroEnabled = true,
+                pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES,
+                note = DefaultConfig.DEFAULT_DOG_NOTE,
+            )
+            stateDefDao.upsert(dogDef)
+            eventDao.replaceStateByNameContaining(
+                fragment = "杂活",
+                stateId = dogDef.id,
+                stateName = dogDef.name,
+                category = dogDef.category,
+            )
+            stateDefDao.getByNameContaining("杂活")
+                .filterNot { it.id == DefaultConfig.ID_DOG }
+                .forEach { stateDefDao.delete(it.id) }
+        }
+    }
+
     /** Item 14: if the configured pomodoro exit state is an EFFECTIVE state and 摆烂 exists,
      *  switch the exit to 摆烂 (effective exit states violate the design philosophy). */
     suspend fun migrateExitToSlackIfEffective() {

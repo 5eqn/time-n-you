@@ -100,4 +100,7 @@ object TimeUtil {
     /** weekday short label (一/二/…) for a date, used in weekly charts. */
     fun weekdayShort(epochMs: Long): String =
         date(epochMs).dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.CHINESE)
+
+    fun weekdayShort(date: LocalDate): String =
+        date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.CHINESE)
 }

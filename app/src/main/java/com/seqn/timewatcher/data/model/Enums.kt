@@ -9,9 +9,10 @@ enum class Category { REST, EFFECTIVE, WASTE;
 object DefaultConfig {
     const val SCHEMA_VERSION = 2
 
-    // Stable ids for the 6 default states — never change, so events/refs stay valid after rename.
+    // Stable ids for the default states — never change, so events/refs stay valid after rename.
     const val ID_SLEEP = "sleep"
     const val ID_LIFE = "life"       // 洗漱/做饭/吃饭/如厕/洗澡 等不可避免的事
+    const val ID_DOG = "dog"
     const val ID_WORK = "work"
     const val ID_HOBBY = "hobby"
     const val ID_SNOOZE = "snooze"   // 小憩（起身活动、远眺、喝水）
@@ -26,6 +27,7 @@ object DefaultConfig {
 
     /** Default note auto-added to 「生活」 on first open of v1.2 (and for fresh installs). */
     const val DEFAULT_LIFE_NOTE = "吃饭、洗漱、运动……"
+    const val DEFAULT_DOG_NOTE = "不得不干的杂活！"
 
     // --- configurable "优秀" targets ---
     const val DEFAULT_TARGET_RATIO = 0.5
@@ -67,8 +69,9 @@ fun Category.Companion.fromString(s: String?): Category =
 fun defaultStateDefs(): List<StateDef> = listOf(
     StateDef(DefaultConfig.ID_SLEEP, "睡觉", Category.REST, pomodoroEnabled = false, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 0),
     StateDef(DefaultConfig.ID_LIFE, "生活", Category.REST, pomodoroEnabled = false, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 1, note = DefaultConfig.DEFAULT_LIFE_NOTE),
-    StateDef(DefaultConfig.ID_WORK, "主业", Category.EFFECTIVE, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 2),
-    StateDef(DefaultConfig.ID_HOBBY, "爱好", Category.EFFECTIVE, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 3),
-    StateDef(DefaultConfig.ID_SNOOZE, "小憩", Category.REST, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.SNOOZE_POMODORO_MINUTES, sortOrder = 4),
-    StateDef(DefaultConfig.ID_SLACK, "摆烂", Category.WASTE, pomodoroEnabled = false, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 5),
+    StateDef(DefaultConfig.ID_DOG, "喂狗", Category.EFFECTIVE, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 2, note = DefaultConfig.DEFAULT_DOG_NOTE),
+    StateDef(DefaultConfig.ID_WORK, "主业", Category.EFFECTIVE, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 3),
+    StateDef(DefaultConfig.ID_HOBBY, "爱好", Category.EFFECTIVE, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 4),
+    StateDef(DefaultConfig.ID_SNOOZE, "小憩", Category.REST, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.SNOOZE_POMODORO_MINUTES, sortOrder = 5),
+    StateDef(DefaultConfig.ID_SLACK, "摆烂", Category.WASTE, pomodoroEnabled = false, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 6),
 )

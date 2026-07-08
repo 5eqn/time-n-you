@@ -38,6 +38,20 @@ interface EventDao {
     @Query("SELECT * FROM state_event ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLatest(): StateEventEntity?
 
+    @Query(
+        """
+        UPDATE state_event
+        SET state_id = :stateId, state_name = :stateName, category = :category
+        WHERE state_name LIKE '%' || :fragment || '%'
+        """
+    )
+    suspend fun replaceStateByNameContaining(
+        fragment: String,
+        stateId: String,
+        stateName: String,
+        category: String,
+    )
+
     @Query("DELETE FROM state_event")
     suspend fun deleteAll()
 }

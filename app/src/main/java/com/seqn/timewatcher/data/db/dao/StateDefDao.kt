@@ -18,6 +18,9 @@ interface StateDefDao {
     @Query("SELECT * FROM state_def WHERE id = :id")
     suspend fun getById(id: String): StateDefEntity?
 
+    @Query("SELECT * FROM state_def WHERE name LIKE '%' || :fragment || '%' ORDER BY sort_order ASC")
+    suspend fun getByNameContaining(fragment: String): List<StateDefEntity>
+
     @Query("SELECT COUNT(*) FROM state_def")
     suspend fun count(): Int
 
@@ -29,6 +32,9 @@ interface StateDefDao {
 
     @Query("DELETE FROM state_def WHERE id = :id")
     suspend fun delete(id: String)
+
+    @Query("DELETE FROM state_def WHERE name LIKE '%' || :fragment || '%'")
+    suspend fun deleteByNameContaining(fragment: String)
 
     @Query("DELETE FROM state_def")
     suspend fun deleteAll()

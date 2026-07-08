@@ -2,12 +2,22 @@ package com.seqn.timewatcher.stats
 
 import com.seqn.timewatcher.data.model.Category
 import com.seqn.timewatcher.data.model.StateEvent
+import com.seqn.timewatcher.util.StatPeriod
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlin.math.roundToLong
 
 data class StateStat(val stateId: String, val stateName: String, val category: Category, val ms: Long)
-data class DayStat(val date: LocalDate, val effectiveMs: Long, val wasteMs: Long, val restMs: Long, val availableMs: Long)
+data class DaySegment(val startOffsetMs: Long, val endOffsetMs: Long, val stateId: String, val category: Category)
+data class DayStat(
+    val date: LocalDate,
+    val effectiveMs: Long,
+    val wasteMs: Long,
+    val restMs: Long,
+    val availableMs: Long,
+    val segments: List<DaySegment>,
+)
 data class StatsResult(
     val totalMs: Long,
     val restMs: Long,
@@ -16,6 +26,7 @@ data class StatsResult(
     val availableMs: Long,
     val utilization: Double,
     val isExcellent: Boolean,
+    val effectiveThresholdMs: Long,
     val perState: List<StateStat>,
     val perDay: List<DayStat>,
 )
@@ -36,6 +47,7 @@ object StatsCalculator {
         periodStart: Long,
         periodEnd: Long,
         now: Long,
+        period: StatPeriod = StatPeriod.DAY,
         targetRatio: Double = 0.5,
         targetMs: Long = 7L * 3_600_000L,
     ): StatsResult {
@@ -51,7 +63,8 @@ object StatsCalculator {
         }
 
         if (events.isEmpty()) {
-            return StatsResult(0, 0, 0, 0, 0, 0.0, false, emptyList(), perDayMap.toDayStats())
+            val thresholdMs = effectiveThresholdMs(period, 0L, targetMs)
+            return StatsResult(0, 0, 0, 0, 0, 0.0, false, thresholdMs, emptyList(), perDayMap.toDayStats())
         }
 
         // events are already timestamp-ascending (DAO-ordered / windowed); no re-sort needed.
@@ -80,19 +93,23 @@ object StatsCalculator {
             perStateMap[e.stateId] = StateStat(e.stateId, e.stateName, e.category, (prev?.ms ?: 0) + dur)
 
             // per-day split at local midnight — mutate the accumulator in place (no copy()).
-            splitByDay(a, b, zone).forEach { (day, d) ->
+            splitByDay(a, b, zone).forEach { slice ->
+                val day = slice.date
+                val d = slice.durationMs
                 val acc = perDayMap.getOrPut(day) { DayAcc() }
                 when (e.category) {
                     Category.REST -> acc.restMs += d
                     Category.EFFECTIVE -> { acc.effectiveMs += d; acc.availableMs += d }
                     Category.WASTE -> { acc.wasteMs += d; acc.availableMs += d }
                 }
+                acc.addSegment(slice.startOffsetMs, slice.endOffsetMs, e.stateId, e.category)
             }
         }
 
         val available = (total - rest).coerceAtLeast(0L)
         val utilization = if (available > 0) effective.toDouble() / available else 0.0
-        val isExcellent = utilization >= targetRatio && effective >= targetMs
+        val thresholdMs = effectiveThresholdMs(period, total, targetMs)
+        val isExcellent = utilization >= targetRatio && effective > thresholdMs
 
         return StatsResult(
             totalMs = total,
@@ -102,6 +119,7 @@ object StatsCalculator {
             availableMs = available,
             utilization = utilization,
             isExcellent = isExcellent,
+            effectiveThresholdMs = thresholdMs,
             perState = perStateMap.values.sortedByDescending { it.ms },
             perDay = perDayMap.toDayStats(),
         )
@@ -113,23 +131,53 @@ object StatsCalculator {
         var wasteMs: Long = 0L,
         var restMs: Long = 0L,
         var availableMs: Long = 0L,
-    )
+        val segments: MutableList<DaySegment> = ArrayList(),
+    ) {
+        fun addSegment(startOffsetMs: Long, endOffsetMs: Long, stateId: String, category: Category) {
+            val last = segments.lastOrNull()
+            if (last != null && last.endOffsetMs == startOffsetMs && last.stateId == stateId && last.category == category) {
+                segments[segments.lastIndex] = last.copy(endOffsetMs = endOffsetMs)
+            } else {
+                segments += DaySegment(startOffsetMs, endOffsetMs, stateId, category)
+            }
+        }
+    }
 
     private fun LinkedHashMap<LocalDate, DayAcc>.toDayStats(): List<DayStat> =
         entries.sortedBy { it.key }.map { (date, acc) ->
-            DayStat(date, acc.effectiveMs, acc.wasteMs, acc.restMs, acc.availableMs)
+            DayStat(date, acc.effectiveMs, acc.wasteMs, acc.restMs, acc.availableMs, acc.segments.toList())
         }
 
-    private fun splitByDay(a: Long, b: Long, zone: ZoneId): List<Pair<LocalDate, Long>> {
-        val out = ArrayList<Pair<LocalDate, Long>>()
+    private data class DaySlice(
+        val date: LocalDate,
+        val startOffsetMs: Long,
+        val endOffsetMs: Long,
+    ) {
+        val durationMs: Long get() = endOffsetMs - startOffsetMs
+    }
+
+    private fun splitByDay(a: Long, b: Long, zone: ZoneId): List<DaySlice> {
+        val out = ArrayList<DaySlice>()
         var cur = a
         while (cur < b) {
-            val day = Instant.ofEpochMilli(cur).atZone(zone).toLocalDate()
+            val zoned = Instant.ofEpochMilli(cur).atZone(zone)
+            val day = zoned.toLocalDate()
             val dayEnd = day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
             val segEnd = minOf(b, dayEnd)
-            out += day to (segEnd - cur)
+            val dayStart = day.atStartOfDay(zone).toInstant().toEpochMilli()
+            out += DaySlice(day, cur - dayStart, segEnd - dayStart)
             cur = segEnd
         }
         return out
     }
+
+    private fun effectiveThresholdMs(period: StatPeriod, totalMs: Long, dayTargetMs: Long): Long =
+        if (period == StatPeriod.DAY) {
+            dayTargetMs
+        } else {
+            roundToTenthHour(totalMs / 4.0)
+        }
+
+    private fun roundToTenthHour(ms: Double): Long =
+        ((ms / 360_000.0).roundToLong() * 360_000L).coerceAtLeast(0L)
 }

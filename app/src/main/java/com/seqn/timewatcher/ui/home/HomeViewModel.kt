@@ -64,7 +64,15 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             // Bounded window: only today's events + the boundary event, not the whole log.
             // flowOn(Default) keeps the Room query + mapping + StatsCalculator off the UI thread.
             repo.observeEventsInWindow(start, end).map { evs ->
-                StatsCalculator.compute(evs, start, end, now, ratio, ms)
+                StatsCalculator.compute(
+                    events = evs,
+                    periodStart = start,
+                    periodEnd = end,
+                    now = now,
+                    period = StatPeriod.DAY,
+                    targetRatio = ratio,
+                    targetMs = ms,
+                )
             }.flowOn(Dispatchers.Default)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StatsCalculator.compute(emptyList(), 0, 0, 0))
@@ -84,6 +92,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             if (repo.getLastChangelogVersion() != version) {
                 // One-time version migrations: default 生活 note + move effective exit state back to 摆烂.
                 repo.ensureLifeNote()
+                repo.migrateDogState()
                 repo.migrateExitToSlackIfEffective()
                 repo.setLastChangelogVersion(version)
                 changelogChannel.trySend(version)
