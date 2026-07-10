@@ -22,6 +22,14 @@ import com.seqn.timewatcher.pomodoro.PomodoroAlarm
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+sealed interface SwitchStateResult {
+    data class Success(val event: StateEvent) : SwitchStateResult
+    data object StateNotFound : SwitchStateResult
+    data object ExactAlarmUnavailable : SwitchStateResult
+}
 
 /** Single source of truth for state defs, switch events, settings, targets, tips, and the pomodoro lifecycle. */
 class Repository(
@@ -32,6 +40,34 @@ class Repository(
     private val eventDao = db.eventDao()
     private val settingDao = db.settingDao()
     private val dbRef = db
+    private val initializationMutex = Mutex()
+    @Volatile private var initialized = false
+
+    /** Creates a new database at the current shape or upgrades existing app data in order. */
+    suspend fun initialize() {
+        if (initialized) return
+        initializationMutex.withLock {
+            if (initialized) return@withLock
+            dbRef.withTransaction {
+                val storedVersion = settingDao.get(DefaultConfig.SETTING_DATA_VERSION)?.toIntOrNull()
+                if (storedVersion == null && stateDefDao.count() == 0) {
+                    stateDefDao.upsertAll(defaultStateDefs().map { it.toEntity() })
+                    settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, DefaultConfig.DEFAULT_EXIT_STATE_ID))
+                } else {
+                    val version = storedVersion ?: 0
+                    if (version < 1) {
+                        ensureLifeNoteMigration()
+                        migrateExitToSlackIfEffectiveMigration()
+                    }
+                    if (version < 2) migrateDogStateMigration()
+                }
+                settingDao.set(
+                    SettingEntity(DefaultConfig.SETTING_DATA_VERSION, DefaultConfig.CURRENT_DATA_VERSION.toString()),
+                )
+            }
+            initialized = true
+        }
+    }
 
     // ---- observation ----
     fun observeStateDefs(): Flow<List<StateDef>> =
@@ -61,17 +97,32 @@ class Repository(
     fun observeSettings(): Flow<Map<String, String>> =
         settingDao.observeAll().map { list -> list.associate { it.key to it.value } }
 
-    suspend fun getStateDefs(): List<StateDef> = stateDefDao.getAll().map { it.toModel() }
-    suspend fun getEvents(): List<StateEvent> = eventDao.getAll().map { it.toModel() }
-    suspend fun getLatestEvent(): StateEvent? = eventDao.getLatest()?.toModel()
+    suspend fun getStateDefs(): List<StateDef> {
+        initialize()
+        return stateDefDao.getAll().map { it.toModel() }
+    }
+
+    suspend fun getEvents(): List<StateEvent> {
+        initialize()
+        return eventDao.getAll().map { it.toModel() }
+    }
+
+    suspend fun getLatestEvent(): StateEvent? {
+        initialize()
+        return eventDao.getLatest()?.toModel()
+    }
 
     // ---- exit state setting ----
     private suspend fun exitStateId(): String =
         settingDao.get(DefaultConfig.SETTING_EXIT_STATE) ?: DefaultConfig.DEFAULT_EXIT_STATE_ID
 
-    suspend fun getExitStateId(): String = exitStateId()
+    suspend fun getExitStateId(): String {
+        initialize()
+        return exitStateId()
+    }
 
     suspend fun resolveExitState(): StateDef {
+        initialize()
         val id = exitStateId()
         stateDefDao.getById(id)?.let { return it.toModel() }
         stateDefDao.getById(DefaultConfig.DEFAULT_EXIT_STATE_ID)?.let { return it.toModel() }
@@ -82,72 +133,96 @@ class Repository(
     }
 
     suspend fun setExitState(id: String) {
+        initialize()
         settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, id))
     }
 
     // ---- targets (configurable 优秀 threshold) ----
-    suspend fun getTargetRatio(): Double =
-        settingDao.get(DefaultConfig.SETTING_TARGET_RATIO)?.toDoubleOrNull() ?: DefaultConfig.DEFAULT_TARGET_RATIO
+    suspend fun getTargetRatio(): Double {
+        initialize()
+        return settingDao.get(DefaultConfig.SETTING_TARGET_RATIO)?.toDoubleOrNull()
+            ?: DefaultConfig.DEFAULT_TARGET_RATIO
+    }
 
     suspend fun setTargetRatio(ratio: Double) {
+        initialize()
         settingDao.set(SettingEntity(DefaultConfig.SETTING_TARGET_RATIO, ratio.toString()))
     }
 
-    suspend fun getTargetMs(): Long =
-        settingDao.get(DefaultConfig.SETTING_TARGET_MS)?.toLongOrNull() ?: DefaultConfig.DEFAULT_TARGET_MS
+    suspend fun getTargetMs(): Long {
+        initialize()
+        return settingDao.get(DefaultConfig.SETTING_TARGET_MS)?.toLongOrNull() ?: DefaultConfig.DEFAULT_TARGET_MS
+    }
 
     suspend fun setTargetMs(ms: Long) {
+        initialize()
         settingDao.set(SettingEntity(DefaultConfig.SETTING_TARGET_MS, ms.toString()))
     }
 
     // ---- tip enable/disable ----
-    suspend fun getTipEnabled(tipId: String): Boolean =
-        settingDao.get(DefaultConfig.SETTING_TIP_PREFIX + tipId) != "0" // default enabled
+    suspend fun getTipEnabled(tipId: String): Boolean {
+        initialize()
+        return settingDao.get(DefaultConfig.SETTING_TIP_PREFIX + tipId) != "0" // default enabled
+    }
 
     suspend fun setTipEnabled(tipId: String, enabled: Boolean) {
+        initialize()
         settingDao.set(SettingEntity(DefaultConfig.SETTING_TIP_PREFIX + tipId, if (enabled) "1" else "0"))
     }
 
     // ---- changelog ----
-    suspend fun getLastChangelogVersion(): String? =
-        settingDao.get(DefaultConfig.SETTING_LAST_CHANGELOG_VERSION)
+    suspend fun getLastChangelogVersion(): String? {
+        initialize()
+        return settingDao.get(DefaultConfig.SETTING_LAST_CHANGELOG_VERSION)
+    }
 
     suspend fun setLastChangelogVersion(version: String) {
+        initialize()
         settingDao.set(SettingEntity(DefaultConfig.SETTING_LAST_CHANGELOG_VERSION, version))
     }
 
     // ---- state switching (core) ----
     /** Records a switch to [stateId] at [now]; arms a pomodoro if that state has one configured.
      *  No-op (keeps elapsed time) if already in [stateId]. */
-    suspend fun switchState(stateId: String, now: Long): StateEvent? {
+    suspend fun switchState(stateId: String, now: Long): SwitchStateResult {
+        initialize()
         val latest = eventDao.getLatest()
         if (latest != null && latest.stateId == stateId) {
             // Disallow re-entering the current state — would otherwise reset the running timer.
-            return latest.toModel()
+            return SwitchStateResult.Success(latest.toModel())
         }
-        val def = stateDefDao.getById(stateId) ?: return null
-        alarm.cancel() // any previously-armed pomodoro is voided by the new switch
+        val def = stateDefDao.getById(stateId) ?: return SwitchStateResult.StateNotFound
+        val endTs = if (def.pomodoroEnabled && def.pomodoroMinutes > 0) {
+            if (!alarm.canScheduleExactAlarms()) return SwitchStateResult.ExactAlarmUnavailable
+            now + def.pomodoroMinutes * 60_000L
+        } else {
+            null
+        }
+        if (endTs != null && !alarm.schedule(endTs)) {
+            return SwitchStateResult.ExactAlarmUnavailable
+        }
+        if (endTs == null) alarm.cancel()
         val event = StateEventEntity(
             stateId = def.id,
             stateName = def.name,
             category = def.category,
             timestamp = now,
-            pomodoroEndTs = null,
-            pomodoroApplied = false,
+            pomodoroEndTs = endTs,
+            pomodoroApplied = endTs != null,
         )
-        val newId = eventDao.insert(event)
-        if (def.pomodoroEnabled && def.pomodoroMinutes > 0) {
-            val endTs = now + def.pomodoroMinutes * 60_000L
-            eventDao.updatePomodoro(newId, endTs, applied = true)
-            alarm.schedule(endTs)
-            return event.copy(id = newId, pomodoroEndTs = endTs, pomodoroApplied = true).toModel()
+        val newId = try {
+            eventDao.insert(event)
+        } catch (t: Throwable) {
+            if (endTs != null) alarm.cancel()
+            throw t
         }
-        return event.copy(id = newId).toModel()
+        return SwitchStateResult.Success(event.copy(id = newId).toModel())
     }
 
     /** Adds a manual correction event at [timestamp]. This intentionally does not apply a
      *  pomodoro; it is a history edit used to repair stats. */
     suspend fun addManualEvent(stateId: String, timestamp: Long): StateEvent? {
+        initialize()
         val def = stateDefDao.getById(stateId) ?: return null
         val latest = eventDao.getLatest()
         val becomesLatest = latest == null || timestamp >= latest.timestamp
@@ -169,6 +244,7 @@ class Repository(
     /** If the active pomodoro has already ended (and nothing newer exists), switch to the exit
      *  state. Returns the exit StateDef when it fired, else null. */
     suspend fun reconcilePomodoro(now: Long): StateDef? {
+        initialize()
         val latest = eventDao.getLatest() ?: return null
         val endTs = latest.pomodoroEndTs ?: return null
         if (endTs > now) return null // still running
@@ -189,7 +265,9 @@ class Repository(
 
     /** Re-arm a still-pending pomodoro (e.g. after reboot/import), or reconcile if it ended.
      *  Returns the exit StateDef when a reconcile fired, else null. */
-    suspend fun reconcileAndArm(now: Long): StateDef? {        val latest = eventDao.getLatest()
+    suspend fun reconcileAndArm(now: Long): StateDef? {
+        initialize()
+        val latest = eventDao.getLatest()
         if (latest == null) {
             alarm.cancel()
             return null
@@ -211,15 +289,23 @@ class Repository(
     /** Debug-only: arms a one-shot test alarm [delayMs] from now via the real alarm pipeline.
      *  Exercises the exact setAlarmClock → RingerService path so a customer can verify ringing
      *  (and capture a trace) without a real pomodoro. */
-    fun testAlarm(delayMs: Long) {
+    fun testAlarm(delayMs: Long): Boolean {
         alarm.cancel()
-        alarm.schedule(System.currentTimeMillis() + delayMs, isTest = true)
+        return alarm.schedule(System.currentTimeMillis() + delayMs, isTest = true)
     }
 
-    suspend fun upsertStateDef(def: StateDef) = stateDefDao.upsert(def.toEntity())
-    suspend fun deleteStateDef(id: String) = stateDefDao.delete(id)
+    suspend fun upsertStateDef(def: StateDef) {
+        initialize()
+        stateDefDao.upsert(def.toEntity())
+    }
+
+    suspend fun deleteStateDef(id: String) {
+        initialize()
+        stateDefDao.delete(id)
+    }
 
     suspend fun addStateDef(name: String): StateDef {
+        initialize()
         val count = stateDefDao.count()
         val id = "state_${count + 1}_${System.currentTimeMillis()}"
         val def = StateDef(
@@ -236,6 +322,7 @@ class Repository(
 
     /** Swap two adjacent states' sort order (reorder). */
     suspend fun moveState(id: String, delta: Int) {
+        initialize()
         val all = stateDefDao.getAll().sortedBy { it.sortOrder }
         val index = all.indexOfFirst { it.id == id }
         if (index < 0) return
@@ -248,27 +335,19 @@ class Repository(
     }
 
     suspend fun resetToDefaultConfig() {
+        initialize()
         dbRef.withTransaction {
             stateDefDao.deleteAll()
             stateDefDao.upsertAll(defaultStateDefs().map { it.toEntity() })
             settingDao.deleteAll()
             settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, DefaultConfig.DEFAULT_EXIT_STATE_ID))
+            settingDao.set(SettingEntity(DefaultConfig.SETTING_DATA_VERSION, DefaultConfig.CURRENT_DATA_VERSION.toString()))
             // targets + tips fall back to defaults by absence of keys
         }
         reconcileAndArm(System.currentTimeMillis())
     }
 
-    suspend fun seedDefaultsIfEmpty() {
-        if (stateDefDao.count() == 0) {
-            dbRef.withTransaction {
-                stateDefDao.upsertAll(defaultStateDefs().map { it.toEntity() })
-                settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, DefaultConfig.DEFAULT_EXIT_STATE_ID))
-            }
-        }
-    }
-
-    /** Item 3: ensure 「生活」 carries its default note if missing (idempotent; runs on first open of v1.2). */
-    suspend fun ensureLifeNote() {
+    private suspend fun ensureLifeNoteMigration() {
         val life = stateDefDao.getById(DefaultConfig.ID_LIFE) ?: return
         if (life.note.isNullOrEmpty()) {
             stateDefDao.upsert(life.copy(note = DefaultConfig.DEFAULT_LIFE_NOTE))
@@ -276,41 +355,39 @@ class Repository(
     }
 
     /** v1.3.1: replace old 「杂活」 states/history with the built-in 「喂狗」 state. */
-    suspend fun migrateDogState() {
-        dbRef.withTransaction {
-            val all = stateDefDao.getAll()
-            val existingDog = all.firstOrNull { it.name == "喂狗" }
-            val dogDef = (existingDog ?: stateDefDao.getById(DefaultConfig.ID_DOG) ?: StateDefEntity(
-                id = DefaultConfig.ID_DOG,
-                name = "喂狗",
-                category = Category.EFFECTIVE.name,
-                pomodoroEnabled = true,
-                pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES,
-                sortOrder = (all.maxOfOrNull { it.sortOrder } ?: -1) + 1,
-                note = DefaultConfig.DEFAULT_DOG_NOTE,
-            )).copy(
-                name = "喂狗",
-                category = Category.EFFECTIVE.name,
-                pomodoroEnabled = true,
-                pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES,
-                note = DefaultConfig.DEFAULT_DOG_NOTE,
-            )
-            stateDefDao.upsert(dogDef)
-            eventDao.replaceStateByNameContaining(
-                fragment = "杂活",
-                stateId = dogDef.id,
-                stateName = dogDef.name,
-                category = dogDef.category,
-            )
-            stateDefDao.getByNameContaining("杂活")
-                .filterNot { it.id == DefaultConfig.ID_DOG }
-                .forEach { stateDefDao.delete(it.id) }
-        }
+    private suspend fun migrateDogStateMigration() {
+        val all = stateDefDao.getAll()
+        val existingDog = all.firstOrNull { it.name == "喂狗" }
+        val dogDef = (existingDog ?: stateDefDao.getById(DefaultConfig.ID_DOG) ?: StateDefEntity(
+            id = DefaultConfig.ID_DOG,
+            name = "喂狗",
+            category = Category.EFFECTIVE.name,
+            pomodoroEnabled = true,
+            pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES,
+            sortOrder = (all.maxOfOrNull { it.sortOrder } ?: -1) + 1,
+            note = DefaultConfig.DEFAULT_DOG_NOTE,
+        )).copy(
+            name = "喂狗",
+            category = Category.EFFECTIVE.name,
+            pomodoroEnabled = true,
+            pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES,
+            note = DefaultConfig.DEFAULT_DOG_NOTE,
+        )
+        stateDefDao.upsert(dogDef)
+        eventDao.replaceStateByNameContaining(
+            fragment = "杂活",
+            stateId = dogDef.id,
+            stateName = dogDef.name,
+            category = dogDef.category,
+        )
+        stateDefDao.getByNameContaining("杂活")
+            .filterNot { it.id == DefaultConfig.ID_DOG }
+            .forEach { stateDefDao.delete(it.id) }
     }
 
     /** Item 14: if the configured pomodoro exit state is an EFFECTIVE state and 摆烂 exists,
      *  switch the exit to 摆烂 (effective exit states violate the design philosophy). */
-    suspend fun migrateExitToSlackIfEffective() {
+    private suspend fun migrateExitToSlackIfEffectiveMigration() {
         val exitId = settingDao.get(DefaultConfig.SETTING_EXIT_STATE) ?: return
         val exitDef = stateDefDao.getById(exitId) ?: return
         if (Category.fromString(exitDef.category) != Category.EFFECTIVE) return
@@ -320,7 +397,10 @@ class Repository(
     }
 
     // ---- export / import ----
-    suspend fun exportJson(now: Long): String = JsonCodec.toJson(buildBundle(now))
+    suspend fun exportJson(now: Long): String {
+        initialize()
+        return JsonCodec.toJson(buildBundle(now))
+    }
 
     private suspend fun buildBundle(now: Long): ExportBundle {
         val defs = stateDefDao.getAll().map { it.toModel() }
@@ -358,39 +438,71 @@ class Repository(
 
     /** Replaces config + events atomically. Returns true on success. */
     suspend fun importBundle(bundle: ExportBundle): Boolean {
-        if (bundle.schemaVersion != DefaultConfig.SCHEMA_VERSION) return false
-        dbRef.withTransaction {
-            stateDefDao.deleteAll()
-            eventDao.deleteAll()
-            settingDao.deleteAll()
-            stateDefDao.upsertAll(
-                bundle.config.states.map {
-                    StateDefEntity(
-                        id = it.id,
-                        name = it.name,
-                        category = it.category,
-                        pomodoroEnabled = it.pomodoroEnabled,
-                        pomodoroMinutes = it.pomodoroMinutes,
-                        sortOrder = it.sortOrder,
-                        note = it.note,
-                    )
-                },
-            )
-            eventDao.insertAll(
-                bundle.events.map {
-                    StateEventEntity(
-                        stateId = it.stateId,
-                        stateName = it.stateName,
-                        category = it.category,
-                        timestamp = it.timestamp,
-                        pomodoroEndTs = it.pomodoroEndTs,
-                        pomodoroApplied = it.pomodoroApplied,
-                    )
-                },
-            )
-            settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, bundle.config.pomodoroExitStateId))
+        initialize()
+        if (!isValidImport(bundle)) return false
+        return try {
+            dbRef.withTransaction {
+                stateDefDao.deleteAll()
+                eventDao.deleteAll()
+                settingDao.deleteAll()
+                stateDefDao.upsertAll(
+                    bundle.config.states.map {
+                        StateDefEntity(
+                            id = it.id,
+                            name = it.name,
+                            category = it.category,
+                            pomodoroEnabled = it.pomodoroEnabled,
+                            pomodoroMinutes = it.pomodoroMinutes,
+                            sortOrder = it.sortOrder,
+                            note = it.note,
+                        )
+                    },
+                )
+                eventDao.insertAll(
+                    bundle.events.map {
+                        StateEventEntity(
+                            stateId = it.stateId,
+                            stateName = it.stateName,
+                            category = it.category,
+                            timestamp = it.timestamp,
+                            pomodoroEndTs = it.pomodoroEndTs,
+                            pomodoroApplied = it.pomodoroApplied,
+                        )
+                    },
+                )
+                settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, bundle.config.pomodoroExitStateId))
+                settingDao.set(
+                    SettingEntity(DefaultConfig.SETTING_DATA_VERSION, DefaultConfig.CURRENT_DATA_VERSION.toString()),
+                )
+            }
+            reconcileAndArm(System.currentTimeMillis())
+            true
+        } catch (_: Exception) {
+            false
         }
-        reconcileAndArm(System.currentTimeMillis())
-        return true
+    }
+
+    private fun isValidImport(bundle: ExportBundle): Boolean {
+        return try {
+            if (bundle.schemaVersion != DefaultConfig.SCHEMA_VERSION) return false
+            val states = bundle.config.states
+            if (states.isEmpty() || states.any {
+                    it.id.isBlank() || it.name.isBlank() ||
+                        Category.entries.none { category -> category.name == it.category } ||
+                        it.pomodoroMinutes <= 0
+                }
+            ) return false
+            val stateIds = states.map { it.id }.toSet()
+            if (stateIds.size != states.size) return false
+            if (bundle.config.pomodoroExitStateId !in stateIds) return false
+            bundle.events.all {
+                it.stateId.isNotBlank() && it.stateName.isNotBlank() && it.timestamp >= 0 &&
+                    Category.entries.any { category -> category.name == it.category } &&
+                    (it.pomodoroEndTs == null || it.pomodoroEndTs >= it.timestamp) &&
+                    it.pomodoroApplied == (it.pomodoroEndTs != null)
+            }
+        } catch (_: RuntimeException) {
+            false
+        }
     }
 }

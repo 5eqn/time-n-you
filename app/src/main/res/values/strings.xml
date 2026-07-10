@@ -70,6 +70,7 @@
     <string name="import_confirm_title">导入数据？</string>
     <string name="import_confirm_msg">将用导入的内容替换当前的状态列表、设置与所有切换日志。建议先导出备份。</string>
     <string name="export_done">已导出到所选位置</string>
+    <string name="export_failed">导出失败：无法写入所选位置</string>
     <string name="import_done">导入完成</string>
     <string name="import_failed">导入失败：文件格式不正确</string>
     <string name="delete_state_title">删除该状态？</string>
@@ -86,6 +87,7 @@
     <string name="notif_pomodoro_title">番茄结束！</string>
     <string name="notif_pomodoro_text">已切换到「%1$s」，建议起身运动一下。</string>
     <string name="missed_pomodoro_toast">番茄钟在应用关闭期间结束，已自动切换状态。</string>
+    <string name="exact_alarm_required">无法进入该状态：系统当前不能保证番茄钟准时响铃。请先允许“闹钟和提醒”权限。</string>
     <string name="alarm_title">番茄结束</string>
     <string name="stop_alarm">停止</string>
 

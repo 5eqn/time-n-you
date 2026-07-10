@@ -38,7 +38,10 @@ object DefaultConfig {
     const val SETTING_TARGET_RATIO = "target_ratio"
     const val SETTING_TARGET_MS = "target_ms"
     const val SETTING_LAST_CHANGELOG_VERSION = "last_changelog_version"
+    const val SETTING_DATA_VERSION = "data_version"
     const val SETTING_TIP_PREFIX = "tip_enabled_" // + TipId.name
+
+    const val CURRENT_DATA_VERSION = 2
 }
 
 data class StateDef(

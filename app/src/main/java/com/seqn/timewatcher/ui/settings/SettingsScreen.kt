@@ -86,7 +86,9 @@ import com.seqn.timewatcher.tips.TipId
 import com.seqn.timewatcher.tips.Tips
 import com.seqn.timewatcher.ui.components.SectionCard
 import com.seqn.timewatcher.util.ColorUtil
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -119,19 +121,31 @@ fun SettingsScreen() {
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
         if (uri != null) scope.launch {
-            val json = vm.exportJson()
-            runCatching { context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) } }
-            Toast.makeText(context, R.string.export_done, Toast.LENGTH_SHORT).show()
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val json = vm.exportJson()
+                    val stream = context.contentResolver.openOutputStream(uri)
+                        ?: error("Unable to open export destination")
+                    stream.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+                }.isSuccess
+            }
+            Toast.makeText(
+                context,
+                if (ok) R.string.export_done else R.string.export_failed,
+                Toast.LENGTH_SHORT,
+            ).show()
         }
     }
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) scope.launch {
-            val text = runCatching {
-                context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
-            }.getOrNull()
-            val ok = text != null && vm.importJson(text)
+            val ok = withContext(Dispatchers.IO) {
+                val text = runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                }.getOrNull()
+                text != null && vm.importJson(text)
+            }
             Toast.makeText(context, if (ok) R.string.import_done else R.string.import_failed, Toast.LENGTH_SHORT).show()
         }
     }

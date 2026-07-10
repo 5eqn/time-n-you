@@ -14,9 +14,6 @@ interface EventDao {
     @Insert
     suspend fun insertAll(events: List<StateEventEntity>)
 
-    @Query("UPDATE state_event SET pomodoro_end_ts = :endTs, pomodoro_applied = :applied WHERE id = :id")
-    suspend fun updatePomodoro(id: Long, endTs: Long?, applied: Boolean)
-
     @Query("SELECT * FROM state_event ORDER BY timestamp ASC")
     fun observeAll(): Flow<List<StateEventEntity>>
 

@@ -8,6 +8,7 @@ import com.seqn.timewatcher.data.model.DefaultConfig
 import com.seqn.timewatcher.data.model.StateDef
 import com.seqn.timewatcher.data.model.StateEvent
 import com.seqn.timewatcher.data.repo.AppGraph
+import com.seqn.timewatcher.data.repo.SwitchStateResult
 import com.seqn.timewatcher.stats.StatsCalculator
 import com.seqn.timewatcher.stats.StatsResult
 import com.seqn.timewatcher.tips.TipId
@@ -83,6 +84,9 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private val changelogChannel = Channel<String>(Channel.BUFFERED)
     val changelog = changelogChannel.receiveAsFlow()
 
+    private val alarmUnavailableChannel = Channel<Unit>(Channel.BUFFERED)
+    val alarmUnavailable = alarmUnavailableChannel.receiveAsFlow()
+
     init {
         // Reconcile a pomodoro that ended while the app was closed, and show changelog on version bump.
         viewModelScope.launch(Dispatchers.IO) {
@@ -90,10 +94,6 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             if (exit != null) missedChannel.trySend(exit.name)
             val version = BuildConfig.VERSION_NAME
             if (repo.getLastChangelogVersion() != version) {
-                // One-time version migrations: default 生活 note + move effective exit state back to 摆烂.
-                repo.ensureLifeNote()
-                repo.migrateDogState()
-                repo.migrateExitToSlackIfEffective()
                 repo.setLastChangelogVersion(version)
                 changelogChannel.trySend(version)
             }
@@ -102,7 +102,9 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     fun switchState(stateId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            repo.switchState(stateId, System.currentTimeMillis())
+            if (repo.switchState(stateId, System.currentTimeMillis()) == SwitchStateResult.ExactAlarmUnavailable) {
+                alarmUnavailableChannel.trySend(Unit)
+            }
         }
     }
 }

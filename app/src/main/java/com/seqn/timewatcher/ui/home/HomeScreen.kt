@@ -72,6 +72,11 @@ fun HomeScreen() {
         }
     }
     LaunchedEffect(Unit) { vm.changelog.collect { showChangelog = true } }
+    LaunchedEffect(Unit) {
+        vm.alarmUnavailable.collect {
+            Toast.makeText(context, R.string.exact_alarm_required, Toast.LENGTH_LONG).show()
+        }
+    }
 
     val onStateTap: (StateDef) -> Unit = remember(tipEnabled, vm) {
         { def ->

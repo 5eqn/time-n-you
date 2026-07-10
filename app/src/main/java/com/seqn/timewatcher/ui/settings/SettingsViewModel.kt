@@ -78,6 +78,6 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun importJson(json: String): Boolean {
         val bundle = JsonCodec.fromJson(json) ?: return false
-        return repo.importBundle(bundle)
+        return runCatching { repo.importBundle(bundle) }.getOrDefault(false)
     }
 }

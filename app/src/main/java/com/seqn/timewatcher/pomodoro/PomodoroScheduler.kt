@@ -19,12 +19,29 @@ import com.seqn.timewatcher.MainActivity
  *  whakaara ships and that works on Vivo. */
 class PomodoroScheduler(private val context: Context) : PomodoroAlarm {
 
-    override fun schedule(endTs: Long, isTest: Boolean) {
+    override fun canScheduleExactAlarms(): Boolean {
+        val am = context.getSystemService(AlarmManager::class.java) ?: return false
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                am.canScheduleExactAlarms()
+            } else {
+                true
+            }
+        } catch (t: Throwable) {
+            AlarmDebugLog.log(
+                "PERMISSION", AlarmDebugLog.STATUS_FAIL, "Exact alarm capability check threw",
+                mapOf("exception" to t.javaClass.simpleName, "message" to (t.message ?: "")),
+            )
+            false
+        }
+    }
+
+    override fun schedule(endTs: Long, isTest: Boolean): Boolean {
         val now = System.currentTimeMillis()
         val am = context.getSystemService(AlarmManager::class.java)
         if (am == null) {
             AlarmDebugLog.log("SCHEDULE", AlarmDebugLog.STATUS_FAIL, "AlarmManager unavailable")
-            return
+            return false
         }
         val perms = permissionSnapshot(am)
         AlarmDebugLog.log(
@@ -43,6 +60,13 @@ class PomodoroScheduler(private val context: Context) : PomodoroAlarm {
             "canScheduleExactAlarms=$canExact",
             if (canExact) emptyMap() else mapOf("advice" to "grant 'Alarms & reminders' in system settings"),
         )
+        if (!canExact) {
+            AlarmDebugLog.log(
+                "SCHEDULE", AlarmDebugLog.STATUS_FAIL,
+                "Exact alarm capability unavailable; refusing to schedule",
+            )
+            return false
+        }
         try {
             val info = AlarmManager.AlarmClockInfo(endTs, showIntent())
             am.setAlarmClock(info, pendingIntent(isTest))
@@ -54,16 +78,19 @@ class PomodoroScheduler(private val context: Context) : PomodoroAlarm {
                     "triggerAt" to endTs.toString(),
                 ),
             )
+            return true
         } catch (e: SecurityException) {
             AlarmDebugLog.log(
                 "SCHEDULE", AlarmDebugLog.STATUS_FAIL, "setAlarmClock threw SecurityException",
                 mapOf("exception" to e.javaClass.simpleName, "message" to (e.message ?: "")),
             )
+            return false
         } catch (t: Throwable) {
             AlarmDebugLog.log(
                 "SCHEDULE", AlarmDebugLog.STATUS_FAIL, "setAlarmClock threw",
                 mapOf("exception" to t.javaClass.simpleName, "message" to (t.message ?: "")),
             )
+            return false
         }
     }
 

@@ -28,8 +28,9 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.seqn.timewatcher/.MainActivity
 ```
 
-首次启动会请求通知权限（用于番茄钟响铃）。在 Android 12+ 上若精确闹钟权限被撤销，
-会退化为非精确闹钟，并在下次打开应用时校正计时。
+首次启动会请求通知权限（用于番茄钟响铃）。番茄钟只使用精确闹钟，绝不退化为可能延迟的
+非精确闹钟。在 Android 12+ 上，如果系统未授予精确闹钟能力，应用会拒绝进入启用了番茄钟的状态，
+且不会写入状态切换记录；允许系统的“闹钟和提醒”权限后即可使用。
 
 ## 数据导出 / 导入
 

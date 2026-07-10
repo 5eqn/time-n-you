@@ -24,7 +24,7 @@ class TimeWatcherApp : Application() {
         )
         Notifier.ensureChannel(this)
         CoroutineScope(Dispatchers.IO).launch {
-            AppGraph.repository(this@TimeWatcherApp).seedDefaultsIfEmpty()
+            AppGraph.repository(this@TimeWatcherApp).initialize()
         }
     }
 
