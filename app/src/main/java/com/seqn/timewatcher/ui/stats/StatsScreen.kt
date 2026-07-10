@@ -19,9 +19,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -96,8 +100,7 @@ fun StatsScreen() {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "优秀标准：利用率 ≥ ${(ui.targetRatio * 100).roundToInt()}% 且 有效时间 > " +
-                        "${(r.effectiveThresholdMs.toDouble() / 3_600_000.0).let { "%.1f".format(it) }} 小时",
+                    "优秀标准：利用率 ≥ ${(ui.targetRatio * 100).roundToInt()}%",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -133,23 +136,6 @@ fun StatsScreen() {
                     MaterialTheme.colorScheme.tertiary,
                     Modifier.weight(1f),
                 )
-            }
-        }
-
-        if (ui.period == StatPeriod.DAY && r.totalMs > 0) {
-            item {
-                val hours = r.restMs.toDouble() / 3_600_000.0
-                val msg = when {
-                    r.restMs < 10 * 3_600_000L ->
-                        "休息偏少（${"%.1f".format(hours)} 小时）。建议把更多日常事务纳入「生活」，并保证休息、规律运动。"
-                    r.restMs <= 14 * 3_600_000L ->
-                        "休息时长合理（推荐接近 12 小时，当前 ${"%.1f".format(hours)} 小时）。"
-                    else ->
-                        "休息偏多（${"%.1f".format(hours)} 小时）。建议不要赖床、如厕时不玩手机、吃饭时不看视频。"
-                }
-                SectionCard("休息建议") {
-                    Text(msg, style = MaterialTheme.typography.bodyMedium)
-                }
             }
         }
 
@@ -243,18 +229,23 @@ private fun StatTile(label: String, value: String, color: Color, modifier: Modif
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun BreakdownModeToggle(mode: BreakdownMode, onModeChange: (BreakdownMode) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(
-            selected = mode == BreakdownMode.SUMMARY,
-            onClick = { onModeChange(BreakdownMode.SUMMARY) },
-            label = { Text("有效 / 可用") },
-        )
-        FilterChip(
-            selected = mode == BreakdownMode.ACTUAL,
-            onClick = { onModeChange(BreakdownMode.ACTUAL) },
-            label = { Text("实际使用") },
-        )
+    val options = listOf(
+        BreakdownMode.SUMMARY to "有效 / 可用",
+        BreakdownMode.ACTUAL to "实际使用",
+    )
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+        options.forEachIndexed { index, (option, label) ->
+            SegmentedButton(
+                selected = mode == option,
+                onClick = { onModeChange(option) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(label, maxLines = 1)
+            }
+        }
     }
 }
 

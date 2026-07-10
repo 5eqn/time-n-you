@@ -6,7 +6,6 @@ import com.seqn.timewatcher.util.StatPeriod
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import kotlin.math.roundToLong
 
 data class StateStat(val stateId: String, val stateName: String, val category: Category, val ms: Long)
 data class DaySegment(val startOffsetMs: Long, val endOffsetMs: Long, val stateId: String, val category: Category)
@@ -26,7 +25,6 @@ data class StatsResult(
     val availableMs: Long,
     val utilization: Double,
     val isExcellent: Boolean,
-    val effectiveThresholdMs: Long,
     val perState: List<StateStat>,
     val perDay: List<DayStat>,
 )
@@ -36,9 +34,9 @@ data class StatsResult(
  *
  * Semantics:
  *  - available time = total - REST (睡觉/吃饭)
- *  - effective time = EFFECTIVE (主业/爱好 only)
- *  - waste time     = WASTE (运动/摆烂)
- *  - utilization    = effective / available; excellent when >= 50% AND effective > 7h
+ *  - effective time = EFFECTIVE
+ *  - waste time     = WASTE
+ *  - utilization    = effective / available; excellent when it reaches [targetRatio]
  */
 object StatsCalculator {
 
@@ -49,7 +47,6 @@ object StatsCalculator {
         now: Long,
         period: StatPeriod = StatPeriod.DAY,
         targetRatio: Double = 0.5,
-        targetMs: Long = 7L * 3_600_000L,
     ): StatsResult {
         val zone = ZoneId.systemDefault()
         val cap = minOf(now, periodEnd)
@@ -63,8 +60,7 @@ object StatsCalculator {
         }
 
         if (events.isEmpty()) {
-            val thresholdMs = effectiveThresholdMs(period, 0L, targetMs)
-            return StatsResult(0, 0, 0, 0, 0, 0.0, false, thresholdMs, emptyList(), perDayMap.toDayStats())
+            return StatsResult(0, 0, 0, 0, 0, 0.0, false, emptyList(), perDayMap.toDayStats())
         }
 
         // events are already timestamp-ascending (DAO-ordered / windowed); no re-sort needed.
@@ -108,8 +104,7 @@ object StatsCalculator {
 
         val available = (total - rest).coerceAtLeast(0L)
         val utilization = if (available > 0) effective.toDouble() / available else 0.0
-        val thresholdMs = effectiveThresholdMs(period, total, targetMs)
-        val isExcellent = utilization >= targetRatio && effective > thresholdMs
+        val isExcellent = available > 0 && utilization >= targetRatio
 
         return StatsResult(
             totalMs = total,
@@ -119,7 +114,6 @@ object StatsCalculator {
             availableMs = available,
             utilization = utilization,
             isExcellent = isExcellent,
-            effectiveThresholdMs = thresholdMs,
             perState = perStateMap.values.sortedByDescending { it.ms },
             perDay = perDayMap.toDayStats(),
         )
@@ -171,13 +165,4 @@ object StatsCalculator {
         return out
     }
 
-    private fun effectiveThresholdMs(period: StatPeriod, totalMs: Long, dayTargetMs: Long): Long =
-        if (period == StatPeriod.DAY) {
-            dayTargetMs
-        } else {
-            roundToTenthHour(totalMs / 4.0)
-        }
-
-    private fun roundToTenthHour(ms: Double): Long =
-        ((ms / 360_000.0).roundToLong() * 360_000L).coerceAtLeast(0L)
 }

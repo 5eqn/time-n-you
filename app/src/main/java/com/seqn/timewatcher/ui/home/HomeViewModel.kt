@@ -46,20 +46,17 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), System.currentTimeMillis())
 
-    val targets: StateFlow<Pair<Double, Long>> = repo.observeSettings().map { s ->
-        val ratio = s[DefaultConfig.SETTING_TARGET_RATIO]?.toDoubleOrNull() ?: DefaultConfig.DEFAULT_TARGET_RATIO
-        val ms = s[DefaultConfig.SETTING_TARGET_MS]?.toLongOrNull() ?: DefaultConfig.DEFAULT_TARGET_MS
-        ratio to ms
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DefaultConfig.DEFAULT_TARGET_RATIO to DefaultConfig.DEFAULT_TARGET_MS)
+    val targetRatio: StateFlow<Double> = repo.observeSettings().map { s ->
+        s[DefaultConfig.SETTING_TARGET_RATIO]?.toDoubleOrNull() ?: DefaultConfig.DEFAULT_TARGET_RATIO
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DefaultConfig.DEFAULT_TARGET_RATIO)
 
     val tipEnabled: StateFlow<Map<TipId, Boolean>> = repo.observeSettings().map { s ->
         TipId.entries.associateWith { s[DefaultConfig.SETTING_TIP_PREFIX + it.name] != "0" }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TipId.entries.associateWith { true })
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val todayStats: StateFlow<StatsResult> = combine(ticker, targets) { now, t -> now to t }
-        .flatMapLatest { (now, t) ->
-            val (ratio, ms) = t
+    val todayStats: StateFlow<StatsResult> = combine(ticker, targetRatio) { now, ratio -> now to ratio }
+        .flatMapLatest { (now, ratio) ->
             val start = TimeUtil.periodStart(StatPeriod.DAY, now)
             val end = TimeUtil.periodEnd(StatPeriod.DAY, start)
             // Bounded window: only today's events + the boundary event, not the whole log.
@@ -72,7 +69,6 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                     now = now,
                     period = StatPeriod.DAY,
                     targetRatio = ratio,
-                    targetMs = ms,
                 )
             }.flowOn(Dispatchers.Default)
         }

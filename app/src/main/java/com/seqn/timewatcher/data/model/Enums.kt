@@ -29,19 +29,17 @@ object DefaultConfig {
     const val DEFAULT_LIFE_NOTE = "吃饭、洗漱、运动……"
     const val DEFAULT_DOG_NOTE = "不得不干的杂活！"
 
-    // --- configurable "优秀" targets ---
+    // --- configurable "优秀" target ---
     const val DEFAULT_TARGET_RATIO = 0.5
-    val DEFAULT_TARGET_MS: Long = 6L * 3_600_000L  // 6 hours
 
     // --- setting keys ---
     const val SETTING_EXIT_STATE = "pomodoro_exit_state_id"
     const val SETTING_TARGET_RATIO = "target_ratio"
-    const val SETTING_TARGET_MS = "target_ms"
     const val SETTING_LAST_CHANGELOG_VERSION = "last_changelog_version"
     const val SETTING_DATA_VERSION = "data_version"
     const val SETTING_TIP_PREFIX = "tip_enabled_" // + TipId.name
 
-    const val CURRENT_DATA_VERSION = 2
+    const val CURRENT_DATA_VERSION = 3
 }
 
 data class StateDef(
@@ -72,7 +70,7 @@ fun Category.Companion.fromString(s: String?): Category =
 fun defaultStateDefs(): List<StateDef> = listOf(
     StateDef(DefaultConfig.ID_SLEEP, "睡觉", Category.REST, pomodoroEnabled = false, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 0),
     StateDef(DefaultConfig.ID_LIFE, "生活", Category.REST, pomodoroEnabled = false, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 1, note = DefaultConfig.DEFAULT_LIFE_NOTE),
-    StateDef(DefaultConfig.ID_DOG, "喂狗", Category.EFFECTIVE, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 2, note = DefaultConfig.DEFAULT_DOG_NOTE),
+    StateDef(DefaultConfig.ID_DOG, "喂狗", Category.REST, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 2, note = DefaultConfig.DEFAULT_DOG_NOTE),
     StateDef(DefaultConfig.ID_WORK, "主业", Category.EFFECTIVE, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 3),
     StateDef(DefaultConfig.ID_HOBBY, "爱好", Category.EFFECTIVE, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 4),
     StateDef(DefaultConfig.ID_SNOOZE, "小憩", Category.REST, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.SNOOZE_POMODORO_MINUTES, sortOrder = 5),

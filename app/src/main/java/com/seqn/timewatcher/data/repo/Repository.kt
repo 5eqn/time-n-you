@@ -60,6 +60,7 @@ class Repository(
                         migrateExitToSlackIfEffectiveMigration()
                     }
                     if (version < 2) migrateDogStateMigration()
+                    if (version < 3) migrateDogToRestMigration()
                 }
                 settingDao.set(
                     SettingEntity(DefaultConfig.SETTING_DATA_VERSION, DefaultConfig.CURRENT_DATA_VERSION.toString()),
@@ -147,16 +148,6 @@ class Repository(
     suspend fun setTargetRatio(ratio: Double) {
         initialize()
         settingDao.set(SettingEntity(DefaultConfig.SETTING_TARGET_RATIO, ratio.toString()))
-    }
-
-    suspend fun getTargetMs(): Long {
-        initialize()
-        return settingDao.get(DefaultConfig.SETTING_TARGET_MS)?.toLongOrNull() ?: DefaultConfig.DEFAULT_TARGET_MS
-    }
-
-    suspend fun setTargetMs(ms: Long) {
-        initialize()
-        settingDao.set(SettingEntity(DefaultConfig.SETTING_TARGET_MS, ms.toString()))
     }
 
     // ---- tip enable/disable ----
@@ -385,6 +376,18 @@ class Repository(
             .forEach { stateDefDao.delete(it.id) }
     }
 
+    /** v1.4: 「喂狗」 is rest time; rewrite snapshots so all historic and active time agrees. */
+    private suspend fun migrateDogToRestMigration() {
+        stateDefDao.getAll()
+            .filter { it.id == DefaultConfig.ID_DOG || it.name == "喂狗" }
+            .forEach { dog -> stateDefDao.upsert(dog.copy(category = Category.REST.name)) }
+        eventDao.updateCategoryByState(
+            stateId = DefaultConfig.ID_DOG,
+            stateName = "喂狗",
+            category = Category.REST.name,
+        )
+    }
+
     /** Item 14: if the configured pomodoro exit state is an EFFECTIVE state and 摆烂 exists,
      *  switch the exit to 摆烂 (effective exit states violate the design philosophy). */
     private suspend fun migrateExitToSlackIfEffectiveMigration() {
@@ -470,6 +473,8 @@ class Repository(
                         )
                     },
                 )
+                // Imports can come from a 1.3.1 backup, so enforce current classification too.
+                migrateDogToRestMigration()
                 settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, bundle.config.pomodoroExitStateId))
                 settingDao.set(
                     SettingEntity(DefaultConfig.SETTING_DATA_VERSION, DefaultConfig.CURRENT_DATA_VERSION.toString()),

@@ -49,6 +49,19 @@ interface EventDao {
         category: String,
     )
 
+    @Query(
+        """
+        UPDATE state_event
+        SET category = :category
+        WHERE state_id = :stateId OR state_name = :stateName
+        """
+    )
+    suspend fun updateCategoryByState(
+        stateId: String,
+        stateName: String,
+        category: String,
+    )
+
     @Query("DELETE FROM state_event")
     suspend fun deleteAll()
 }

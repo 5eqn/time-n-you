@@ -100,7 +100,7 @@ fun SettingsScreen() {
     val defs by vm.stateDefs.collectAsStateWithLifecycle()
     val exitId by vm.exitStateId.collectAsStateWithLifecycle()
     val tipEnabled by vm.tipEnabled.collectAsStateWithLifecycle()
-    val targets by vm.targets.collectAsStateWithLifecycle()
+    val targetRatio by vm.targetRatio.collectAsStateWithLifecycle()
     val alarmLog by vm.alarmLog.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -192,19 +192,7 @@ fun SettingsScreen() {
         // --- targets ---
         item {
             SectionCard(stringResource(R.string.settings_targets)) {
-                val ratio = targets.first.toFloat()
-                val hours = (targets.second / 3_600_000.0)
-                Text(
-                    "有效时间目标：${"%.1f".format(hours)} 小时",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Slider(
-                    value = hours.toFloat().coerceIn(1f, 12f),
-                    onValueChange = { vm.setTargetMs((it.toDouble() * 3_600_000).toLong()) },
-                    valueRange = 1f..12f,
-                    steps = 21,
-                )
-                Spacer(Modifier.size(8.dp))
+                val ratio = targetRatio.toFloat()
                 Text(
                     "目标利用率：${(ratio * 100).toInt()}%",
                     style = MaterialTheme.typography.bodyMedium,

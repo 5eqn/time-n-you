@@ -14,7 +14,7 @@ class StatsCalculatorTest {
         StateEvent(id, sid, name, cat, ts, null, false)
 
     @Test
-    fun `utilization excludes rest and exercise is waste, not excellent under 7h`() {
+    fun `utilization excludes rest and excellence has no absolute time requirement`() {
         // 0–8 sleep, 8–9 eat, 9–12 work, 12–13 slack, 13–14 exercise, 14–17 hobby (tail to now=17)
         val now = 17 * H
         val events = listOf(
@@ -32,11 +32,11 @@ class StatsCalculatorTest {
         assertThat(r.wasteMs).isEqualTo(2 * H)      // slack 1 + exercise 1
         assertThat(r.availableMs).isEqualTo(8 * H)  // total 17 - rest 9
         assertThat(r.utilization).isWithin(1e-6).of(6.0 / 8.0) // 75%
-        assertThat(r.isExcellent).isFalse()         // effective < 7h
+        assertThat(r.isExcellent).isTrue()          // 75%, regardless of effective hours
     }
 
     @Test
-    fun `excellent when at least 50 pct and over 7h effective`() {
+    fun `excellent when at least target utilization`() {
         // effective 7.5h, available 9.5h
         val now = 18.5.toLong().let { (18 * H) + (30 * 60_000L) }
         val events = listOf(
@@ -55,13 +55,11 @@ class StatsCalculatorTest {
     }
 
     @Test
-    fun `week excellent threshold is rounded quarter of tracked time and remains strict greater than`() {
-        // total tracked = 32h => threshold = 8.0h
-        val now = 32 * H
+    fun `week excellence also depends only on utilization`() {
+        val now = 10 * H
         val events = listOf(
-            ev(1, "sleep", "睡觉", Category.REST, 0),
-            ev(2, "work", "主业", Category.EFFECTIVE, 8 * H),
-            ev(3, "slack", "摆烂", Category.WASTE, 16 * H),
+            ev(1, "work", "主业", Category.EFFECTIVE, 0),
+            ev(2, "slack", "摆烂", Category.WASTE, 5 * H),
         )
         val r = StatsCalculator.compute(
             events = events,
@@ -71,18 +69,16 @@ class StatsCalculatorTest {
             period = com.seqn.timewatcher.util.StatPeriod.WEEK,
         )
 
-        assertThat(r.effectiveThresholdMs).isEqualTo(8 * H)
-        assertThat(r.effectiveMs).isEqualTo(8 * H)
-        assertThat(r.isExcellent).isFalse()
+        assertThat(r.effectiveMs).isEqualTo(5 * H)
+        assertThat(r.isExcellent).isTrue()
     }
 
     @Test
-    fun `week excellent threshold rounds to one decimal hour`() {
-        // total tracked = 25h => threshold = 6.25h, rounded to 6.3h
+    fun `below target utilization is not excellent despite long effective time`() {
         val now = 25 * H
         val events = listOf(
             ev(1, "work", "主业", Category.EFFECTIVE, 0),
-            ev(2, "slack", "摆烂", Category.WASTE, (6 * H) + (24 * 60_000L)),
+            ev(2, "slack", "摆烂", Category.WASTE, 12 * H),
         )
         val r = StatsCalculator.compute(
             events = events,
@@ -92,7 +88,7 @@ class StatsCalculatorTest {
             period = com.seqn.timewatcher.util.StatPeriod.WEEK,
         )
 
-        assertThat(r.effectiveThresholdMs).isEqualTo((6 * H) + (18 * 60_000L))
+        assertThat(r.isExcellent).isFalse()
     }
 
     @Test

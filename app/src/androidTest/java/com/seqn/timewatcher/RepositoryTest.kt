@@ -96,7 +96,27 @@ class RepositoryTest {
         val events = repo.getEvents()
         assertThat(events.single().stateId).isEqualTo(DefaultConfig.ID_DOG)
         assertThat(events.single().stateName).isEqualTo("喂狗")
-        assertThat(events.single().category).isEqualTo(com.seqn.timewatcher.data.model.Category.EFFECTIVE)
+        assertThat(events.single().category).isEqualTo(com.seqn.timewatcher.data.model.Category.REST)
+    }
+
+    @Test
+    fun migrate_dog_to_rest_updates_definition_history_and_current_event() = runBlocking {
+        repo.upsertStateDef(
+            repo.getStateDefs().single { it.id == DefaultConfig.ID_DOG }
+                .copy(category = com.seqn.timewatcher.data.model.Category.EFFECTIVE),
+        )
+        repo.addManualEvent(DefaultConfig.ID_DOG, 1_000L)
+
+        db.settingDao().set(SettingEntity(DefaultConfig.SETTING_DATA_VERSION, "2"))
+        repo = Repository(db, fakeAlarm)
+        repo.initialize()
+
+        assertThat(repo.getStateDefs().single { it.id == DefaultConfig.ID_DOG }.category)
+            .isEqualTo(com.seqn.timewatcher.data.model.Category.REST)
+        assertThat(repo.getEvents().single().category)
+            .isEqualTo(com.seqn.timewatcher.data.model.Category.REST)
+        assertThat(repo.getLatestEvent()!!.category)
+            .isEqualTo(com.seqn.timewatcher.data.model.Category.REST)
     }
 
     @Test

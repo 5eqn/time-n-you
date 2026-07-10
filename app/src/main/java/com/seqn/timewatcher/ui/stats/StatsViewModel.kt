@@ -38,11 +38,9 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), System.currentTimeMillis())
 
-    val targets: StateFlow<Pair<Double, Long>> = repo.observeSettings().map { s ->
-        val ratio = s[DefaultConfig.SETTING_TARGET_RATIO]?.toDoubleOrNull() ?: DefaultConfig.DEFAULT_TARGET_RATIO
-        val ms = s[DefaultConfig.SETTING_TARGET_MS]?.toLongOrNull() ?: DefaultConfig.DEFAULT_TARGET_MS
-        ratio to ms
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DefaultConfig.DEFAULT_TARGET_RATIO to DefaultConfig.DEFAULT_TARGET_MS)
+    val targetRatio: StateFlow<Double> = repo.observeSettings().map { s ->
+        s[DefaultConfig.SETTING_TARGET_RATIO]?.toDoubleOrNull() ?: DefaultConfig.DEFAULT_TARGET_RATIO
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DefaultConfig.DEFAULT_TARGET_RATIO)
 
     data class StatsUi(
         val result: StatsResult,
@@ -51,14 +49,13 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
         val start: Long,
         val isCurrentPeriod: Boolean,
         val targetRatio: Double,
-        val targetMs: Long,
     )
 
-    private data class Request(val period: StatPeriod, val start: Long, val now: Long, val ratio: Double, val ms: Long)
+    private data class Request(val period: StatPeriod, val start: Long, val now: Long, val ratio: Double)
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val ui: StateFlow<StatsUi> = combine(_period, _start, ticker, targets) { p, s, now, t ->
-        Request(p, s, now, t.first, t.second)
+    val ui: StateFlow<StatsUi> = combine(_period, _start, ticker, targetRatio) { p, s, now, ratio ->
+        Request(p, s, now, ratio)
     }.flatMapLatest { req ->
         val end = TimeUtil.periodEnd(req.period, req.start)
         // Bounded window: only the selected period's events + the boundary event.
@@ -72,19 +69,17 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
                     now = req.now,
                     period = req.period,
                     targetRatio = req.ratio,
-                    targetMs = req.ms,
                 ),
                 label = TimeUtil.periodLabel(req.period, req.start, minOf(req.now, end)),
                 period = req.period,
                 start = req.start,
                 isCurrentPeriod = req.now < end,
                 targetRatio = req.ratio,
-                targetMs = req.ms,
             )
         }.flowOn(Dispatchers.Default)
     }.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5_000),
-        StatsUi(StatsCalculator.compute(emptyList(), 0, 0, 0), "", StatPeriod.DAY, 0, true, 0.5, DefaultConfig.DEFAULT_TARGET_MS),
+        StatsUi(StatsCalculator.compute(emptyList(), 0, 0, 0), "", StatPeriod.DAY, 0, true, 0.5),
     )
 
     fun setPeriod(p: StatPeriod) {

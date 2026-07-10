@@ -31,11 +31,9 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         TipId.entries.associateWith { s[DefaultConfig.SETTING_TIP_PREFIX + it.name] != "0" }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TipId.entries.associateWith { true })
 
-    val targets: StateFlow<Pair<Double, Long>> = repo.observeSettings().map { s ->
-        val ratio = s[DefaultConfig.SETTING_TARGET_RATIO]?.toDoubleOrNull() ?: DefaultConfig.DEFAULT_TARGET_RATIO
-        val ms = s[DefaultConfig.SETTING_TARGET_MS]?.toLongOrNull() ?: DefaultConfig.DEFAULT_TARGET_MS
-        ratio to ms
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DefaultConfig.DEFAULT_TARGET_RATIO to DefaultConfig.DEFAULT_TARGET_MS)
+    val targetRatio: StateFlow<Double> = repo.observeSettings().map { s ->
+        s[DefaultConfig.SETTING_TARGET_RATIO]?.toDoubleOrNull() ?: DefaultConfig.DEFAULT_TARGET_RATIO
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DefaultConfig.DEFAULT_TARGET_RATIO)
 
     init {
         viewModelScope.launch(Dispatchers.IO) { _exitStateId.value = repo.getExitStateId() }
@@ -64,7 +62,6 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         repo.setTipEnabled(id.name, enabled)
     }
     fun setTargetRatio(ratio: Double) = viewModelScope.launch(Dispatchers.IO) { repo.setTargetRatio(ratio) }
-    fun setTargetMs(ms: Long) = viewModelScope.launch(Dispatchers.IO) { repo.setTargetMs(ms) }
     fun addManualEvent(stateId: String, timestamp: Long) = viewModelScope.launch(Dispatchers.IO) {
         repo.addManualEvent(stateId, timestamp)
     }
