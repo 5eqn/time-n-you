@@ -64,6 +64,7 @@ class Repository(
                     if (version < 2) migrateDogStateMigration()
                     if (version < 3) migrateDogToRestMigration()
                     if (version < 4) migrateLambdaSetting()
+                    if (version < 5) migrateBuiltInRestStatesMigration()
                 }
                 settingDao.set(
                     SettingEntity(DefaultConfig.SETTING_DATA_VERSION, DefaultConfig.CURRENT_DATA_VERSION.toString()),
@@ -404,6 +405,38 @@ class Repository(
         settingDao.delete(DefaultConfig.SETTING_TARGET_RATIO)
     }
 
+    /** v1.4: apply the revised defaults to the three built-in rest states. */
+    private suspend fun migrateBuiltInRestStatesMigration() {
+        stateDefDao.getById(DefaultConfig.ID_LIFE)?.let { life ->
+            stateDefDao.upsert(
+                life.copy(
+                    category = Category.REST.name,
+                    pomodoroEnabled = false,
+                    note = DefaultConfig.DEFAULT_LIFE_NOTE,
+                ),
+            )
+        }
+        stateDefDao.getById(DefaultConfig.ID_DOG)?.let { dog ->
+            stateDefDao.upsert(
+                dog.copy(
+                    category = Category.REST.name,
+                    pomodoroEnabled = false,
+                    note = DefaultConfig.DEFAULT_DOG_NOTE,
+                ),
+            )
+        }
+        stateDefDao.getById(DefaultConfig.ID_SNOOZE)?.let { snooze ->
+            stateDefDao.upsert(
+                snooze.copy(
+                    category = Category.REST.name,
+                    pomodoroEnabled = true,
+                    pomodoroMinutes = DefaultConfig.SNOOZE_POMODORO_MINUTES,
+                    note = DefaultConfig.DEFAULT_SNOOZE_NOTE,
+                ),
+            )
+        }
+    }
+
     /** Item 14: if the configured pomodoro exit state is an EFFECTIVE state and 摆烂 exists,
      *  switch the exit to 摆烂 (effective exit states violate the design philosophy). */
     private suspend fun migrateExitToSlackIfEffectiveMigration() {
@@ -490,8 +523,9 @@ class Repository(
                         )
                     },
                 )
-                // Imports can come from a 1.3.1 backup, so enforce current classification too.
+                // Imports can come from older backups, so enforce current built-in defaults too.
                 migrateDogToRestMigration()
+                migrateBuiltInRestStatesMigration()
                 settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, bundle.config.pomodoroExitStateId))
                 val importedLambda = if (bundle.schemaVersion >= 3) {
                     LambdaLevel.fromValue(bundle.config.lambda)

@@ -745,6 +745,11 @@ private fun AlarmDebugSection(
 
     SectionCard(stringResource(R.string.settings_alarm_debug)) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = stringResource(R.string.alarm_debug_help),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Button(onClick = onTest, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = null)

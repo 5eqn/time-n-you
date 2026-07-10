@@ -32,13 +32,14 @@ object Notifier {
     /** The full-screen-intent alarm notification posted by [RingerService] as its foreground
      *  notification. On a locked / screen-off device the system launches the full-screen intent
      *  ([AlarmActivity]); when the screen is on it shows as a high-priority heads-up. */
-    fun buildAlarmNotification(context: Context, exitStateName: String): Notification {
+    fun buildAlarmNotification(context: Context, exitStateName: String, isTest: Boolean): Notification {
         ensureChannel(context)
 
         val fullScreenIntent = PendingIntent.getActivity(
             context, 0,
             Intent(context, AlarmActivity::class.java)
                 .putExtra(AlarmActivity.EXTRA_EXIT_STATE_NAME, exitStateName)
+                .putExtra(AlarmActivity.EXTRA_IS_TEST, isTest)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -55,8 +56,16 @@ object Notifier {
         )
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notify)
-            .setContentTitle(context.getString(R.string.notif_pomodoro_title))
-            .setContentText(context.getString(R.string.notif_pomodoro_text, exitStateName))
+            .setContentTitle(
+                context.getString(if (isTest) R.string.alarm_test_title else R.string.notif_pomodoro_title),
+            )
+            .setContentText(
+                if (isTest) {
+                    context.getString(R.string.alarm_test_message)
+                } else {
+                    context.getString(R.string.notif_pomodoro_text, exitStateName)
+                },
+            )
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)

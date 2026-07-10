@@ -7,6 +7,7 @@ import com.google.common.truth.Truth.assertThat
 import com.seqn.timewatcher.data.db.AppDatabase
 import com.seqn.timewatcher.data.db.entity.SettingEntity
 import com.seqn.timewatcher.data.model.DefaultConfig
+import com.seqn.timewatcher.data.model.Category
 import com.seqn.timewatcher.data.model.ExportBundle
 import com.seqn.timewatcher.data.model.ExportConfig
 import com.seqn.timewatcher.data.model.ExportStateDef
@@ -142,6 +143,63 @@ class RepositoryTest {
         repo.initialize()
 
         assertThat(repo.getLambda()).isEqualTo(LambdaLevel.STEADY)
+    }
+
+    @Test
+    fun migrate_v5_overwrites_built_in_rest_state_defaults_after_older_migrations() = runBlocking {
+        val changed = repo.getStateDefs().associateBy { it.id }
+        repo.upsertStateDef(
+            changed.getValue(DefaultConfig.ID_LIFE).copy(
+                category = Category.EFFECTIVE,
+                pomodoroEnabled = true,
+                note = "custom life",
+            ),
+        )
+        repo.upsertStateDef(
+            changed.getValue(DefaultConfig.ID_DOG).copy(
+                category = Category.WASTE,
+                pomodoroEnabled = true,
+                note = "custom dog",
+            ),
+        )
+        repo.upsertStateDef(
+            changed.getValue(DefaultConfig.ID_SNOOZE).copy(
+                category = Category.WASTE,
+                pomodoroEnabled = false,
+                pomodoroMinutes = 20,
+                note = "custom snooze",
+            ),
+        )
+        db.settingDao().set(SettingEntity(DefaultConfig.SETTING_DATA_VERSION, "0"))
+
+        repo = Repository(db, fakeAlarm)
+        repo.initialize()
+
+        val migrated = repo.getStateDefs().associateBy { it.id }
+        assertThat(migrated.getValue(DefaultConfig.ID_LIFE)).isEqualTo(
+            changed.getValue(DefaultConfig.ID_LIFE).copy(
+                category = Category.REST,
+                pomodoroEnabled = false,
+                note = DefaultConfig.DEFAULT_LIFE_NOTE,
+            ),
+        )
+        assertThat(migrated.getValue(DefaultConfig.ID_DOG)).isEqualTo(
+            changed.getValue(DefaultConfig.ID_DOG).copy(
+                category = Category.REST,
+                pomodoroEnabled = false,
+                note = DefaultConfig.DEFAULT_DOG_NOTE,
+            ),
+        )
+        assertThat(migrated.getValue(DefaultConfig.ID_SNOOZE)).isEqualTo(
+            changed.getValue(DefaultConfig.ID_SNOOZE).copy(
+                category = Category.REST,
+                pomodoroEnabled = true,
+                pomodoroMinutes = DefaultConfig.SNOOZE_POMODORO_MINUTES,
+                note = DefaultConfig.DEFAULT_SNOOZE_NOTE,
+            ),
+        )
+        assertThat(db.settingDao().get(DefaultConfig.SETTING_DATA_VERSION))
+            .isEqualTo(DefaultConfig.CURRENT_DATA_VERSION.toString())
     }
 
     @Test

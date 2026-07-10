@@ -42,13 +42,13 @@ object DefaultConfig {
     /** Default state the pomodoro auto-switches into when it ends. */
     const val DEFAULT_EXIT_STATE_ID = ID_SLACK
 
-    /** Default pomodoro length for newly-created states and 主业/爱好. 小憩 uses 5 min. */
+    /** Default pomodoro length for newly-created states and 主业/爱好. 小憩 uses 3 min. */
     const val DEFAULT_POMODORO_MINUTES = 30
-    const val SNOOZE_POMODORO_MINUTES = 5
+    const val SNOOZE_POMODORO_MINUTES = 3
 
-    /** Default note auto-added to 「生活」 on first open of v1.2 (and for fresh installs). */
-    const val DEFAULT_LIFE_NOTE = "吃饭、洗漱、运动……"
-    const val DEFAULT_DOG_NOTE = "不得不干的杂活！"
+    const val DEFAULT_LIFE_NOTE = "（吃饭、洗漱、运动……）"
+    const val DEFAULT_DOG_NOTE = "（不得不干的杂活……）"
+    const val DEFAULT_SNOOZE_NOTE = "（走动、饮水、远眺……）"
 
     // --- configurable focus standard ---
     val DEFAULT_LAMBDA = LambdaLevel.STEADY
@@ -62,7 +62,7 @@ object DefaultConfig {
     const val SETTING_DATA_VERSION = "data_version"
     const val SETTING_TIP_PREFIX = "tip_enabled_" // + TipId.name
 
-    const val CURRENT_DATA_VERSION = 4
+    const val CURRENT_DATA_VERSION = 5
 }
 
 data class StateDef(
@@ -93,9 +93,9 @@ fun Category.Companion.fromString(s: String?): Category =
 fun defaultStateDefs(): List<StateDef> = listOf(
     StateDef(DefaultConfig.ID_SLEEP, "睡觉", Category.REST, pomodoroEnabled = false, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 0),
     StateDef(DefaultConfig.ID_LIFE, "生活", Category.REST, pomodoroEnabled = false, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 1, note = DefaultConfig.DEFAULT_LIFE_NOTE),
-    StateDef(DefaultConfig.ID_DOG, "喂狗", Category.REST, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 2, note = DefaultConfig.DEFAULT_DOG_NOTE),
+    StateDef(DefaultConfig.ID_DOG, "喂狗", Category.REST, pomodoroEnabled = false, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 2, note = DefaultConfig.DEFAULT_DOG_NOTE),
     StateDef(DefaultConfig.ID_WORK, "主业", Category.EFFECTIVE, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 3),
     StateDef(DefaultConfig.ID_HOBBY, "爱好", Category.EFFECTIVE, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 4),
-    StateDef(DefaultConfig.ID_SNOOZE, "小憩", Category.REST, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.SNOOZE_POMODORO_MINUTES, sortOrder = 5),
+    StateDef(DefaultConfig.ID_SNOOZE, "小憩", Category.REST, pomodoroEnabled = true, pomodoroMinutes = DefaultConfig.SNOOZE_POMODORO_MINUTES, sortOrder = 5, note = DefaultConfig.DEFAULT_SNOOZE_NOTE),
     StateDef(DefaultConfig.ID_SLACK, "摆烂", Category.WASTE, pomodoroEnabled = false, pomodoroMinutes = DefaultConfig.DEFAULT_POMODORO_MINUTES, sortOrder = 6),
 )

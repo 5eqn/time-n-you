@@ -93,7 +93,8 @@ class RingerService : Service() {
                 return@launch
             }
             withContext(Dispatchers.Main) {
-                if (startForegroundCompat(exitName)) {
+                val isTestDisplay = isTest && exitName == TEST_LABEL
+                if (startForegroundCompat(exitName, isTestDisplay)) {
                     beginRinging()
                     handler.removeCallbacks(stopRunnable)
                     handler.postDelayed(stopRunnable, RING_MS)
@@ -134,9 +135,9 @@ class RingerService : Service() {
      *  the system blocks the background foreground-service start — the Vivo failure mode. The
      *  platform-specific [android.app.ForegroundServiceStartNotAllowedException] (API 31+) is
      *  matched by class name so the reference is safe on older devices too. */
-    private fun startForegroundCompat(exitStateName: String): Boolean {
+    private fun startForegroundCompat(exitStateName: String, isTest: Boolean): Boolean {
         return try {
-            val notification: Notification = Notifier.buildAlarmNotification(this, exitStateName)
+            val notification: Notification = Notifier.buildAlarmNotification(this, exitStateName, isTest)
             val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
             } else {
