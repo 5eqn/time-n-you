@@ -5,10 +5,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.seqn.timewatcher.data.model.DefaultConfig
 import com.seqn.timewatcher.data.model.JsonCodec
+import com.seqn.timewatcher.data.model.LambdaLevel
 import com.seqn.timewatcher.data.model.StateDef
 import com.seqn.timewatcher.data.repo.AppGraph
 import com.seqn.timewatcher.pomodoro.AlarmDebugLog
-import com.seqn.timewatcher.pomodoro.AlarmLogEntry
 import com.seqn.timewatcher.tips.TipId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,16 +31,13 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         TipId.entries.associateWith { s[DefaultConfig.SETTING_TIP_PREFIX + it.name] != "0" }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TipId.entries.associateWith { true })
 
-    val targetRatio: StateFlow<Double> = repo.observeSettings().map { s ->
-        s[DefaultConfig.SETTING_TARGET_RATIO]?.toDoubleOrNull() ?: DefaultConfig.DEFAULT_TARGET_RATIO
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DefaultConfig.DEFAULT_TARGET_RATIO)
+    val lambdaLevel: StateFlow<LambdaLevel> = repo.observeSettings().map { s ->
+        LambdaLevel.fromValue(s[DefaultConfig.SETTING_LAMBDA]?.toIntOrNull())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DefaultConfig.DEFAULT_LAMBDA)
 
     init {
         viewModelScope.launch(Dispatchers.IO) { _exitStateId.value = repo.getExitStateId() }
     }
-
-    /** Live view of the persistent alarm debug log (schedule → fire → foreground → media). */
-    val alarmLog: StateFlow<List<AlarmLogEntry>> = AlarmDebugLog.events
 
     /** Arms a 5-second test alarm through the real pipeline. Customer should lock the screen /
      *  background the app within 5s to reproduce Vivo conditions. */
@@ -61,7 +58,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     fun setTipEnabled(id: TipId, enabled: Boolean) = viewModelScope.launch(Dispatchers.IO) {
         repo.setTipEnabled(id.name, enabled)
     }
-    fun setTargetRatio(ratio: Double) = viewModelScope.launch(Dispatchers.IO) { repo.setTargetRatio(ratio) }
+    fun setLambda(level: LambdaLevel) = viewModelScope.launch(Dispatchers.IO) { repo.setLambda(level) }
     fun addManualEvent(stateId: String, timestamp: Long) = viewModelScope.launch(Dispatchers.IO) {
         repo.addManualEvent(stateId, timestamp)
     }

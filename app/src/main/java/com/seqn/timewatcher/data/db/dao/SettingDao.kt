@@ -24,6 +24,9 @@ interface SettingDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setAll(settings: List<SettingEntity>)
 
+    @Query("DELETE FROM setting WHERE key = :key")
+    suspend fun delete(key: String)
+
     @Query("DELETE FROM setting")
     suspend fun deleteAll()
 }

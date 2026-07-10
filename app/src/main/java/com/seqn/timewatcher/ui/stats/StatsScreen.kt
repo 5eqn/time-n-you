@@ -57,7 +57,6 @@ import com.seqn.timewatcher.util.StatPeriod
 import com.seqn.timewatcher.util.TimeUtil
 import java.time.LocalDate
 import java.time.YearMonth
-import kotlin.math.roundToInt
 
 private const val DAY_MS = 24L * 3_600_000L
 
@@ -89,7 +88,7 @@ fun StatsScreen() {
         item {
             SectionCard(null) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    UtilizationGauge(r.utilization, r.isExcellent, ui.targetRatio)
+                    UtilizationGauge(r.utilization, r.isExcellent, ui.lambdaLevel.targetRatio)
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -100,7 +99,11 @@ fun StatsScreen() {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "优秀标准：利用率 ≥ ${(ui.targetRatio * 100).roundToInt()}%",
+                    stringResource(
+                        R.string.lambda_excellent_standard,
+                        ui.lambdaLevel.value,
+                        ui.lambdaLevel.displayPercent,
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -232,7 +235,7 @@ private fun StatTile(label: String, value: String, color: Color, modifier: Modif
 @OptIn(ExperimentalMaterial3Api::class)
 private fun BreakdownModeToggle(mode: BreakdownMode, onModeChange: (BreakdownMode) -> Unit) {
     val options = listOf(
-        BreakdownMode.SUMMARY to "有效 / 可用",
+        BreakdownMode.SUMMARY to "专注 / 可支配",
         BreakdownMode.ACTUAL to "实际使用",
     )
     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -241,6 +244,14 @@ private fun BreakdownModeToggle(mode: BreakdownMode, onModeChange: (BreakdownMod
                 selected = mode == option,
                 onClick = { onModeChange(option) },
                 shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    activeBorderColor = MaterialTheme.colorScheme.primary,
+                    inactiveContainerColor = MaterialTheme.colorScheme.surface,
+                    inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    inactiveBorderColor = MaterialTheme.colorScheme.outline,
+                ),
                 modifier = Modifier.weight(1f),
             ) {
                 Text(label, maxLines = 1)

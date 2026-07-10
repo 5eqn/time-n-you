@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,11 +31,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
@@ -46,18 +45,20 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,22 +67,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.seqn.timewatcher.R
 import com.seqn.timewatcher.data.model.Category
+import com.seqn.timewatcher.data.model.LambdaLevel
 import com.seqn.timewatcher.data.model.StateDef
 import com.seqn.timewatcher.pomodoro.AlarmDebugLog
-import com.seqn.timewatcher.pomodoro.AlarmLogEntry
-import com.seqn.timewatcher.pomodoro.formatted
 import com.seqn.timewatcher.tips.TipId
 import com.seqn.timewatcher.tips.Tips
 import com.seqn.timewatcher.ui.components.SectionCard
@@ -100,14 +97,14 @@ fun SettingsScreen() {
     val defs by vm.stateDefs.collectAsStateWithLifecycle()
     val exitId by vm.exitStateId.collectAsStateWithLifecycle()
     val tipEnabled by vm.tipEnabled.collectAsStateWithLifecycle()
-    val targetRatio by vm.targetRatio.collectAsStateWithLifecycle()
-    val alarmLog by vm.alarmLog.collectAsStateWithLifecycle()
+    val lambdaLevel by vm.lambdaLevel.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var showReset by remember { mutableStateOf(false) }
     var showImport by remember { mutableStateOf(false) }
     var showBackfill by remember { mutableStateOf(false) }
+    var showLambdaInfo by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<StateDef?>(null) }
     val defaultName = stringResource(R.string.new_state_default_name)
 
@@ -155,6 +152,14 @@ fun SettingsScreen() {
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(vertical = 16.dp),
     ) {
+        item {
+            LambdaSelector(
+                selected = lambdaLevel,
+                onSelect = vm::setLambda,
+                onLearnMore = { showLambdaInfo = true },
+            )
+        }
+
         // --- state list editor (lazy + keyed: only visible rows compose on the first nav frame) ---
         item {
             Text(
@@ -186,23 +191,6 @@ fun SettingsScreen() {
         item {
             SectionCard(stringResource(R.string.settings_pomodoro)) {
                 ExitStateSelector(defs = defs, selectedId = exitId, philosophyEnabled = philosophyEnabled, onSelect = vm::setExit)
-            }
-        }
-
-        // --- targets ---
-        item {
-            SectionCard(stringResource(R.string.settings_targets)) {
-                val ratio = targetRatio.toFloat()
-                Text(
-                    "目标利用率：${(ratio * 100).toInt()}%",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Slider(
-                    value = ratio.coerceIn(0.1f, 0.9f),
-                    onValueChange = { vm.setTargetRatio(it.toDouble()) },
-                    valueRange = 0.1f..0.9f,
-                    steps = 15,
-                )
             }
         }
 
@@ -259,7 +247,6 @@ fun SettingsScreen() {
         // --- alarm debug (Vivo diagnostic) ---
         item {
             AlarmDebugSection(
-                entries = alarmLog,
                 onTest = { vm.testAlarm() },
                 onClear = { vm.clearAlarmLog() },
             )
@@ -273,6 +260,9 @@ fun SettingsScreen() {
             onConfirm = { vm.resetDefaults(); showReset = false },
             onDismiss = { showReset = false },
         )
+    }
+    if (showLambdaInfo) {
+        LambdaInfoDialog(onDismiss = { showLambdaInfo = false })
     }
     if (showImport) {
         ConfirmDialog(
@@ -491,6 +481,12 @@ private fun StateEditorRow(
                         selected = def.category == c,
                         onClick = { tryApply(def.copy(category = c)) },
                         label = { Text(categoryLabel(c)) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ),
                     )
                 }
             }
@@ -611,10 +607,124 @@ private fun ConfirmDialog(title: String, message: String, onConfirm: () -> Unit,
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LambdaSelector(
+    selected: LambdaLevel,
+    onSelect: (LambdaLevel) -> Unit,
+    onLearnMore: () -> Unit,
+) {
+    SectionCard(stringResource(R.string.settings_lambda_title)) {
+        Text(
+            stringResource(R.string.settings_lambda_intro),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            LambdaLevel.entries.forEachIndexed { index, level ->
+                SegmentedButton(
+                    selected = selected == level,
+                    onClick = { onSelect(level) },
+                    shape = SegmentedButtonDefaults.itemShape(index, LambdaLevel.entries.size),
+                    colors = SegmentedButtonDefaults.colors(
+                        activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        activeBorderColor = MaterialTheme.colorScheme.primary,
+                        inactiveContainerColor = MaterialTheme.colorScheme.surface,
+                        inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        inactiveBorderColor = MaterialTheme.colorScheme.outline,
+                    ),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(
+                        stringResource(R.string.settings_lambda_option, level.value, level.displayPercent),
+                        maxLines = 2,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(
+            when (selected) {
+                LambdaLevel.STEADY -> stringResource(R.string.settings_lambda_steady)
+                LambdaLevel.AMBITIOUS -> stringResource(R.string.settings_lambda_ambitious)
+                LambdaLevel.SPRINT -> stringResource(R.string.settings_lambda_sprint)
+            },
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            stringResource(R.string.settings_lambda_summary, selected.displayPercent, selected.value),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextButton(onClick = onLearnMore, modifier = Modifier.align(Alignment.End)) {
+            Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(stringResource(R.string.settings_lambda_learn_more))
+        }
+    }
+}
+
+@Composable
+private fun LambdaInfoDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.settings_lambda_info_title), fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    stringResource(R.string.settings_lambda_info_intro),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                LambdaInfoRow("λ5", stringResource(R.string.settings_lambda_5_detail))
+                LambdaInfoRow("λ3", stringResource(R.string.settings_lambda_3_detail))
+                LambdaInfoRow("λ2", stringResource(R.string.settings_lambda_2_detail))
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = RoundedCornerShape(14.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.settings_lambda_categories),
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.confirm)) }
+        },
+    )
+}
+
+@Composable
+private fun LambdaInfoRow(label: String, detail: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = CircleShape) {
+            Text(
+                label,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+        Text(detail, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
 private fun categoryLabel(c: Category): String = when (c) {
-    Category.REST -> "休息"
-    Category.EFFECTIVE -> "有效"
-    Category.WASTE -> "无效"
+    Category.REST -> stringResource(R.string.cat_rest)
+    Category.EFFECTIVE -> stringResource(R.string.cat_effective)
+    Category.WASTE -> stringResource(R.string.cat_waste)
 }
 
 private val backfillDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
@@ -628,24 +738,13 @@ private fun formatBackfillTime(ms: Long, zone: ZoneId): String =
 
 @Composable
 private fun AlarmDebugSection(
-    entries: List<AlarmLogEntry>,
     onTest: () -> Unit,
     onClear: () -> Unit,
 ) {
     val context = LocalContext.current
-    val scroll = rememberScrollState()
-    // Newest lines are appended at the bottom; keep the view pinned there.
-    LaunchedEffect(entries.size) {
-        if (entries.isNotEmpty()) scroll.animateScrollTo(scroll.maxValue)
-    }
 
     SectionCard(stringResource(R.string.settings_alarm_debug)) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                text = stringResource(R.string.alarm_debug_help),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Button(onClick = onTest, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = null)
@@ -668,55 +767,6 @@ private fun AlarmDebugSection(
                 Icon(Icons.Filled.Delete, contentDescription = null)
                 Spacer(Modifier.width(6.dp))
                 Text(stringResource(R.string.alarm_debug_clear))
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Filled.BugReport,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = stringResource(R.string.alarm_debug_log, entries.size),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            // The persistent trace itself: monospace, status-coloured, scrolls within a fixed height.
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 360.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .verticalScroll(scroll),
-            ) {
-                if (entries.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.alarm_debug_empty),
-                        modifier = Modifier.padding(12.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        entries.forEach { entry ->
-                            Text(
-                                text = entry.formatted(),
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp,
-                                color = when (entry.status) {
-                                    AlarmDebugLog.STATUS_FAIL -> MaterialTheme.colorScheme.error
-                                    AlarmDebugLog.STATUS_OK -> Color(0xFF1B7F3C)
-                                    else -> MaterialTheme.colorScheme.onSurface
-                                },
-                            )
-                        }
-                    }
-                }
             }
         }
     }

@@ -6,8 +6,29 @@ enum class Category { REST, EFFECTIVE, WASTE;
     companion object
 }
 
+/** The three deliberate focus standards exposed to users. */
+enum class LambdaLevel(
+    val value: Int,
+    val targetRatio: Double,
+    val displayPercent: Int,
+) {
+    STEADY(5, 1.0 / 5.0, 20),
+    AMBITIOUS(3, 1.0 / 3.0, 33),
+    SPRINT(2, 1.0 / 2.0, 50);
+
+    companion object {
+        fun fromValue(value: Int?): LambdaLevel = entries.firstOrNull { it.value == value } ?: STEADY
+
+        /** Preserve an old custom target by choosing the closest supported standard. */
+        fun nearestToRatio(ratio: Double?): LambdaLevel {
+            if (ratio == null || !ratio.isFinite()) return STEADY
+            return entries.minBy { kotlin.math.abs(it.targetRatio - ratio) }
+        }
+    }
+}
+
 object DefaultConfig {
-    const val SCHEMA_VERSION = 2
+    const val SCHEMA_VERSION = 3
 
     // Stable ids for the default states — never change, so events/refs stay valid after rename.
     const val ID_SLEEP = "sleep"
@@ -29,17 +50,19 @@ object DefaultConfig {
     const val DEFAULT_LIFE_NOTE = "吃饭、洗漱、运动……"
     const val DEFAULT_DOG_NOTE = "不得不干的杂活！"
 
-    // --- configurable "优秀" target ---
-    const val DEFAULT_TARGET_RATIO = 0.5
+    // --- configurable focus standard ---
+    val DEFAULT_LAMBDA = LambdaLevel.STEADY
 
     // --- setting keys ---
     const val SETTING_EXIT_STATE = "pomodoro_exit_state_id"
+    const val SETTING_LAMBDA = "lambda"
+    /** Legacy v1.3.1 setting, read once by the v1.4 migration. */
     const val SETTING_TARGET_RATIO = "target_ratio"
     const val SETTING_LAST_CHANGELOG_VERSION = "last_changelog_version"
     const val SETTING_DATA_VERSION = "data_version"
     const val SETTING_TIP_PREFIX = "tip_enabled_" // + TipId.name
 
-    const val CURRENT_DATA_VERSION = 3
+    const val CURRENT_DATA_VERSION = 4
 }
 
 data class StateDef(

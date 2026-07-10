@@ -56,6 +56,7 @@ fun HomeScreen() {
     val defs by vm.stateDefs.collectAsStateWithLifecycle()
     val latest by vm.latestEvent.collectAsStateWithLifecycle()
     val today by vm.todayStats.collectAsStateWithLifecycle()
+    val lambdaLevel by vm.lambdaLevel.collectAsStateWithLifecycle()
     val tipEnabled by vm.tipEnabled.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
@@ -107,13 +108,23 @@ fun HomeScreen() {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(stringResource(R.string.today_utilization), style = MaterialTheme.typography.bodyLarge)
-                    val ratio = today.utilization
+                    Column {
+                        Text(stringResource(R.string.today_utilization), style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            stringResource(
+                                R.string.today_lambda_standard,
+                                lambdaLevel.value,
+                                lambdaLevel.displayPercent,
+                            ),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Text(
-                        "${(ratio * 100).roundToInt()}%",
+                        "${(today.utilization * 100).roundToInt()}%",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = if (ratio >= 0.5) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        color = if (today.isExcellent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                     )
                 }
                 Spacer(Modifier.height(12.dp))

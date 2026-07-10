@@ -6,9 +6,9 @@
 - **核心**：每次状态切换都持久化为带时间戳的事件，所以**应用被关闭期间的时间也会被正确累计**。
 - **番茄钟**：通过 `AlarmManager` + `BroadcastReceiver` 实现，**即便应用进程被杀死**，
   到点也会自动切换到退出状态（默认「摆烂」）并发送高优先级通知 + 响铃。
-- **统计口径**：`利用率 = 有效时间 /（总时间 − 休息时间）`；
-  有效 = 主业 + 爱好；休息 = 睡觉 + 生活 + 喂狗 + 小憩；无效 = 摆烂。
-  所有周期的默认优秀标准均为利用率 ≥ 50%，可在设置中调整。
+- **统计口径**：`利用率 = 专注时间 / 可支配时间`；专注 = 主业 + 爱好，
+  免计 = 睡觉 + 生活 + 喂狗 + 小憩，非专注 = 摆烂。设置页可选择专注尺度
+  λ5 / λ3 / λ2，分别对应 20% / 33% / 50% 的优秀标准。
 
 ## 构建
 
@@ -18,6 +18,7 @@
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 export ANDROID_HOME=/home/seqn/Android/Sdk
 ./gradlew assembleDebug          # 产物：app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleRelease        # 产物：app/build/outputs/apk/release/app-release.apk
 ./gradlew testDebugUnitTest      # 统计/时间 纯逻辑单元测试
 ```
 

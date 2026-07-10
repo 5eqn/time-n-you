@@ -7,6 +7,7 @@ import com.seqn.timewatcher.BuildConfig
 import com.seqn.timewatcher.data.model.DefaultConfig
 import com.seqn.timewatcher.data.model.StateDef
 import com.seqn.timewatcher.data.model.StateEvent
+import com.seqn.timewatcher.data.model.LambdaLevel
 import com.seqn.timewatcher.data.repo.AppGraph
 import com.seqn.timewatcher.data.repo.SwitchStateResult
 import com.seqn.timewatcher.stats.StatsCalculator
@@ -46,17 +47,17 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), System.currentTimeMillis())
 
-    val targetRatio: StateFlow<Double> = repo.observeSettings().map { s ->
-        s[DefaultConfig.SETTING_TARGET_RATIO]?.toDoubleOrNull() ?: DefaultConfig.DEFAULT_TARGET_RATIO
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DefaultConfig.DEFAULT_TARGET_RATIO)
+    val lambdaLevel: StateFlow<LambdaLevel> = repo.observeSettings().map { s ->
+        LambdaLevel.fromValue(s[DefaultConfig.SETTING_LAMBDA]?.toIntOrNull())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DefaultConfig.DEFAULT_LAMBDA)
 
     val tipEnabled: StateFlow<Map<TipId, Boolean>> = repo.observeSettings().map { s ->
         TipId.entries.associateWith { s[DefaultConfig.SETTING_TIP_PREFIX + it.name] != "0" }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TipId.entries.associateWith { true })
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val todayStats: StateFlow<StatsResult> = combine(ticker, targetRatio) { now, ratio -> now to ratio }
-        .flatMapLatest { (now, ratio) ->
+    val todayStats: StateFlow<StatsResult> = combine(ticker, lambdaLevel) { now, level -> now to level }
+        .flatMapLatest { (now, level) ->
             val start = TimeUtil.periodStart(StatPeriod.DAY, now)
             val end = TimeUtil.periodEnd(StatPeriod.DAY, start)
             // Bounded window: only today's events + the boundary event, not the whole log.
@@ -68,7 +69,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                     periodEnd = end,
                     now = now,
                     period = StatPeriod.DAY,
-                    targetRatio = ratio,
+                    targetRatio = level.targetRatio,
                 )
             }.flowOn(Dispatchers.Default)
         }

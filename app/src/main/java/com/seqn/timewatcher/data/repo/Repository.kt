@@ -14,6 +14,7 @@ import com.seqn.timewatcher.data.model.ExportConfig
 import com.seqn.timewatcher.data.model.ExportEvent
 import com.seqn.timewatcher.data.model.ExportStateDef
 import com.seqn.timewatcher.data.model.JsonCodec
+import com.seqn.timewatcher.data.model.LambdaLevel
 import com.seqn.timewatcher.data.model.StateDef
 import com.seqn.timewatcher.data.model.StateEvent
 import com.seqn.timewatcher.data.model.defaultStateDefs
@@ -53,6 +54,7 @@ class Repository(
                 if (storedVersion == null && stateDefDao.count() == 0) {
                     stateDefDao.upsertAll(defaultStateDefs().map { it.toEntity() })
                     settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, DefaultConfig.DEFAULT_EXIT_STATE_ID))
+                    settingDao.set(SettingEntity(DefaultConfig.SETTING_LAMBDA, DefaultConfig.DEFAULT_LAMBDA.value.toString()))
                 } else {
                     val version = storedVersion ?: 0
                     if (version < 1) {
@@ -61,6 +63,7 @@ class Repository(
                     }
                     if (version < 2) migrateDogStateMigration()
                     if (version < 3) migrateDogToRestMigration()
+                    if (version < 4) migrateLambdaSetting()
                 }
                 settingDao.set(
                     SettingEntity(DefaultConfig.SETTING_DATA_VERSION, DefaultConfig.CURRENT_DATA_VERSION.toString()),
@@ -138,16 +141,15 @@ class Repository(
         settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, id))
     }
 
-    // ---- targets (configurable 优秀 threshold) ----
-    suspend fun getTargetRatio(): Double {
+    // ---- focus standard ----
+    suspend fun getLambda(): LambdaLevel {
         initialize()
-        return settingDao.get(DefaultConfig.SETTING_TARGET_RATIO)?.toDoubleOrNull()
-            ?: DefaultConfig.DEFAULT_TARGET_RATIO
+        return LambdaLevel.fromValue(settingDao.get(DefaultConfig.SETTING_LAMBDA)?.toIntOrNull())
     }
 
-    suspend fun setTargetRatio(ratio: Double) {
+    suspend fun setLambda(level: LambdaLevel) {
         initialize()
-        settingDao.set(SettingEntity(DefaultConfig.SETTING_TARGET_RATIO, ratio.toString()))
+        settingDao.set(SettingEntity(DefaultConfig.SETTING_LAMBDA, level.value.toString()))
     }
 
     // ---- tip enable/disable ----
@@ -332,6 +334,7 @@ class Repository(
             stateDefDao.upsertAll(defaultStateDefs().map { it.toEntity() })
             settingDao.deleteAll()
             settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, DefaultConfig.DEFAULT_EXIT_STATE_ID))
+            settingDao.set(SettingEntity(DefaultConfig.SETTING_LAMBDA, DefaultConfig.DEFAULT_LAMBDA.value.toString()))
             settingDao.set(SettingEntity(DefaultConfig.SETTING_DATA_VERSION, DefaultConfig.CURRENT_DATA_VERSION.toString()))
             // targets + tips fall back to defaults by absence of keys
         }
@@ -388,6 +391,19 @@ class Repository(
         )
     }
 
+    /** v1.4: collapse the former arbitrary utilization target into one of three λ standards. */
+    private suspend fun migrateLambdaSetting() {
+        val existing = settingDao.get(DefaultConfig.SETTING_LAMBDA)?.toIntOrNull()
+        val level = if (existing != null) {
+            LambdaLevel.fromValue(existing)
+        } else {
+            val legacyRatio = settingDao.get(DefaultConfig.SETTING_TARGET_RATIO)?.toDoubleOrNull()
+            LambdaLevel.nearestToRatio(legacyRatio)
+        }
+        settingDao.set(SettingEntity(DefaultConfig.SETTING_LAMBDA, level.value.toString()))
+        settingDao.delete(DefaultConfig.SETTING_TARGET_RATIO)
+    }
+
     /** Item 14: if the configured pomodoro exit state is an EFFECTIVE state and 摆烂 exists,
      *  switch the exit to 摆烂 (effective exit states violate the design philosophy). */
     private suspend fun migrateExitToSlackIfEffectiveMigration() {
@@ -424,6 +440,7 @@ class Repository(
                     )
                 },
                 pomodoroExitStateId = exitStateId(),
+                lambda = getLambda().value,
             ),
             events = events.map {
                 ExportEvent(
@@ -476,6 +493,12 @@ class Repository(
                 // Imports can come from a 1.3.1 backup, so enforce current classification too.
                 migrateDogToRestMigration()
                 settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, bundle.config.pomodoroExitStateId))
+                val importedLambda = if (bundle.schemaVersion >= 3) {
+                    LambdaLevel.fromValue(bundle.config.lambda)
+                } else {
+                    DefaultConfig.DEFAULT_LAMBDA
+                }
+                settingDao.set(SettingEntity(DefaultConfig.SETTING_LAMBDA, importedLambda.value.toString()))
                 settingDao.set(
                     SettingEntity(DefaultConfig.SETTING_DATA_VERSION, DefaultConfig.CURRENT_DATA_VERSION.toString()),
                 )
@@ -489,7 +512,8 @@ class Repository(
 
     private fun isValidImport(bundle: ExportBundle): Boolean {
         return try {
-            if (bundle.schemaVersion != DefaultConfig.SCHEMA_VERSION) return false
+            if (bundle.schemaVersion !in 2..DefaultConfig.SCHEMA_VERSION) return false
+            if (bundle.schemaVersion >= 3 && bundle.config.lambda !in setOf(2, 3, 5)) return false
             val states = bundle.config.states
             if (states.isEmpty() || states.any {
                     it.id.isBlank() || it.name.isBlank() ||

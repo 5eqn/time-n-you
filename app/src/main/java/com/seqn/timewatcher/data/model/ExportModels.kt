@@ -28,6 +28,8 @@ data class ExportEvent(
 data class ExportConfig(
     val states: List<ExportStateDef>,
     val pomodoroExitStateId: String,
+    /** Added in schema 3. Nullable so schema-2 backups deserialize safely. */
+    val lambda: Int? = null,
 )
 
 data class ExportBundle(

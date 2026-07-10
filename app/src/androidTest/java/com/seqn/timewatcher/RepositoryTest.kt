@@ -11,6 +11,7 @@ import com.seqn.timewatcher.data.model.ExportBundle
 import com.seqn.timewatcher.data.model.ExportConfig
 import com.seqn.timewatcher.data.model.ExportStateDef
 import com.seqn.timewatcher.data.model.JsonCodec
+import com.seqn.timewatcher.data.model.LambdaLevel
 import com.seqn.timewatcher.data.repo.SwitchStateResult
 import com.seqn.timewatcher.data.repo.Repository
 import com.seqn.timewatcher.pomodoro.PomodoroAlarm
@@ -120,6 +121,30 @@ class RepositoryTest {
     }
 
     @Test
+    fun migrate_legacy_target_ratio_to_nearest_lambda_level() = runBlocking {
+        db.settingDao().delete(DefaultConfig.SETTING_LAMBDA)
+        db.settingDao().set(SettingEntity(DefaultConfig.SETTING_TARGET_RATIO, "0.35"))
+        db.settingDao().set(SettingEntity(DefaultConfig.SETTING_DATA_VERSION, "3"))
+
+        repo = Repository(db, fakeAlarm)
+        repo.initialize()
+
+        assertThat(repo.getLambda()).isEqualTo(LambdaLevel.AMBITIOUS)
+        assertThat(db.settingDao().get(DefaultConfig.SETTING_TARGET_RATIO)).isNull()
+    }
+
+    @Test
+    fun missing_legacy_target_migrates_to_recommended_lambda_five() = runBlocking {
+        db.settingDao().delete(DefaultConfig.SETTING_LAMBDA)
+        db.settingDao().set(SettingEntity(DefaultConfig.SETTING_DATA_VERSION, "3"))
+
+        repo = Repository(db, fakeAlarm)
+        repo.initialize()
+
+        assertThat(repo.getLambda()).isEqualTo(LambdaLevel.STEADY)
+    }
+
+    @Test
     fun switching_to_pomodoro_state_arms_alarm() = runBlocking {
         val now = 1_000_000L
         val ev = (repo.switchState(DefaultConfig.ID_WORK, now) as SwitchStateResult.Success).event
@@ -189,16 +214,33 @@ class RepositoryTest {
         repo.switchState(DefaultConfig.ID_SLACK, 2_000L)
         val originalDefs = repo.getStateDefs().size
         val originalEvents = repo.getEvents().size
+        repo.setLambda(LambdaLevel.AMBITIOUS)
 
         val json = repo.exportJson(3_000L)
         assertThat(json).contains("schemaVersion")
         val bundle = com.seqn.timewatcher.data.model.JsonCodec.fromJson(json)
         assertThat(bundle).isNotNull()
+        assertThat(bundle!!.config.lambda).isEqualTo(3)
 
         // Importing the bundle replaces tables; data must survive the round trip.
-        assertThat(repo.importBundle(bundle!!)).isTrue()
+        assertThat(repo.importBundle(bundle)).isTrue()
         assertThat(repo.getStateDefs()).hasSize(originalDefs)
         assertThat(repo.getEvents()).hasSize(originalEvents)
+        assertThat(repo.getLambda()).isEqualTo(LambdaLevel.AMBITIOUS)
+    }
+
+    @Test
+    fun schema_two_backup_imports_with_recommended_lambda() = runBlocking {
+        val current = JsonCodec.fromJson(repo.exportJson(3_000L))!!
+        val oldBundle = current.copy(
+            schemaVersion = 2,
+            config = current.config.copy(lambda = null),
+        )
+
+        repo.setLambda(LambdaLevel.SPRINT)
+        assertThat(repo.importBundle(oldBundle)).isTrue()
+
+        assertThat(repo.getLambda()).isEqualTo(LambdaLevel.STEADY)
     }
 
     @Test

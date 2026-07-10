@@ -285,7 +285,7 @@ class RingerService : Service() {
         private const val NOTIF_ID = 7725
         private const val RING_MS = 8_000L
         private const val WAKE_TIMEOUT_MS = 30_000L
-        private const val TEST_LABEL = "测试响铃（5秒）"
+        private const val TEST_LABEL = "测试响铃"
         private const val FGS_BLOCKED_EXCEPTION = "android.app.ForegroundServiceStartNotAllowedException"
     }
 }

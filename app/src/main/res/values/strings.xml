@@ -15,9 +15,10 @@
     <string name="tap_to_switch">点按下方按钮切换状态</string>
     <string name="today_summary">今日</string>
     <string name="today_utilization">今日利用率</string>
+    <string name="today_lambda_standard">λ%1$d · 目标 %2$d%%</string>
     <string name="no_state_yet">还没有记录。点按下方按钮开始。</string>
-    <string name="effective_short">有效</string>
-    <string name="available_short">可用</string>
+    <string name="effective_short">专注</string>
+    <string name="available_short">可支配</string>
 
     <!-- Stats -->
     <string name="period_day">日</string>
@@ -25,10 +26,11 @@
     <string name="period_month">月</string>
     <string name="period_year">年</string>
     <string name="utilization_title">利用率</string>
-    <string name="effective_time">有效时间</string>
-    <string name="available_time">可用时间</string>
-    <string name="rest_time">休息时间</string>
-    <string name="waste_time">无效时间</string>
+    <string name="effective_time">专注时间</string>
+    <string name="available_time">可支配时间</string>
+    <string name="rest_time">免计时间</string>
+    <string name="waste_time">非专注时间</string>
+    <string name="lambda_excellent_standard">λ%1$d 标准 · 利用率 ≥ %2$d%%</string>
     <string name="total_tracked">记录总时长</string>
     <string name="excellent">优秀</string>
     <string name="rating_good">良好</string>
@@ -39,15 +41,29 @@
     <string name="minutes_suffix">分</string>
 
     <!-- Categories -->
-    <string name="cat_rest">休息</string>
-    <string name="cat_effective">有效</string>
-    <string name="cat_waste">无效</string>
+    <string name="cat_rest">免计</string>
+    <string name="cat_effective">专注</string>
+    <string name="cat_waste">非专注</string>
 
     <!-- Settings -->
     <string name="settings_states">状态列表</string>
     <string name="settings_pomodoro">番茄钟</string>
     <string name="settings_targets">目标</string>
     <string name="settings_tips">提醒管理</string>
+    <string name="settings_lambda_title">专注尺度 λ</string>
+    <string name="settings_lambda_intro">选择一个愿意长期守住的专注标准</string>
+    <string name="settings_lambda_option">λ%1$d\n%2$d%%</string>
+    <string name="settings_lambda_steady">长期稳健 · 推荐</string>
+    <string name="settings_lambda_ambitious">进取目标</string>
+    <string name="settings_lambda_sprint">高度自律</string>
+    <string name="settings_lambda_summary">专注时间至少占可支配时间的 %1$d%%；没有人的专注时间能超过你 %2$d 倍。</string>
+    <string name="settings_lambda_learn_more">了解 λ</string>
+    <string name="settings_lambda_info_title">如何理解 λ</string>
+    <string name="settings_lambda_info_intro">利用率 = 专注时间 ÷ 可支配时间。λ 越小，标准越高。</string>
+    <string name="settings_lambda_5_detail">20% · 适合大众长期坚持，为主业或爱好建立稳定积累。</string>
+    <string name="settings_lambda_3_detail">33% · 适合有一定野心、希望逐步建立领域话语权的人。</string>
+    <string name="settings_lambda_2_detail">50% · 适合高自律要求或 2～6 个月的短期冲刺。</string>
+    <string name="settings_lambda_categories">专注：为主业或爱好投入且保持专心。\n非专注：可自由支配、但没有专注投入。\n免计：睡眠或必要事务等不能自由支配的时间。</string>
     <string name="settings_exit_state">番茄钟结束后切换到</string>
     <string name="settings_reset">恢复默认设置</string>
     <string name="settings_export">导出数据</string>
@@ -56,7 +72,7 @@
     <string name="settings_add_state">添加状态</string>
     <string name="state_name">名称</string>
     <string name="state_note">备注（显示在首页）</string>
-    <string name="state_category">统计类别</string>
+    <string name="state_category">时间类别</string>
     <string name="state_pomodoro_enable">应用番茄钟</string>
     <string name="state_pomodoro_minutes">番茄钟时长（分钟）</string>
     <string name="state_delete">删除</string>
@@ -95,11 +111,8 @@
 
     <!-- Alarm debug (Vivo diagnostic) -->
     <string name="settings_alarm_debug">调试 · 响铃测试</string>
-    <string name="alarm_debug_help">点按「测试响铃」后，请在 5 秒内锁屏或退到后台（模拟 Vivo 环境）。5 秒后应响铃并弹出全屏界面。回到本页可查看完整日志并复制发给我。</string>
-    <string name="alarm_debug_test">测试响铃（5秒）</string>
+    <string name="alarm_debug_test">测试响铃</string>
     <string name="alarm_debug_copy">复制日志</string>
     <string name="alarm_debug_clear">清除日志</string>
-    <string name="alarm_debug_log">响铃日志（%1$d 条）</string>
-    <string name="alarm_debug_empty">暂无日志。点按「测试响铃」开始。</string>
     <string name="alarm_debug_copied">日志已复制到剪贴板</string>
 </resources>

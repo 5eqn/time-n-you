@@ -33,10 +33,10 @@ data class StatsResult(
  * Pure aggregation over the append-only event log for a [periodStart, periodEnd) window.
  *
  * Semantics:
- *  - available time = total - REST (睡觉/吃饭)
- *  - effective time = EFFECTIVE
- *  - waste time     = WASTE
- *  - utilization    = effective / available; excellent when it reaches [targetRatio]
+ *  - disposable time = total - REST (免计)
+ *  - focus time      = EFFECTIVE (专注)
+ *  - non-focus time  = WASTE (非专注)
+ *  - utilization     = focus / disposable; excellent when it reaches [targetRatio]
  */
 object StatsCalculator {
 

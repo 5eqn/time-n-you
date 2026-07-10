@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.seqn.timewatcher.data.model.DefaultConfig
 import com.seqn.timewatcher.data.repo.AppGraph
+import com.seqn.timewatcher.data.model.LambdaLevel
 import com.seqn.timewatcher.stats.StatsCalculator
 import com.seqn.timewatcher.stats.StatsResult
 import com.seqn.timewatcher.util.StatPeriod
@@ -38,9 +39,9 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), System.currentTimeMillis())
 
-    val targetRatio: StateFlow<Double> = repo.observeSettings().map { s ->
-        s[DefaultConfig.SETTING_TARGET_RATIO]?.toDoubleOrNull() ?: DefaultConfig.DEFAULT_TARGET_RATIO
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DefaultConfig.DEFAULT_TARGET_RATIO)
+    val lambdaLevel: StateFlow<LambdaLevel> = repo.observeSettings().map { s ->
+        LambdaLevel.fromValue(s[DefaultConfig.SETTING_LAMBDA]?.toIntOrNull())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DefaultConfig.DEFAULT_LAMBDA)
 
     data class StatsUi(
         val result: StatsResult,
@@ -48,14 +49,14 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
         val period: StatPeriod,
         val start: Long,
         val isCurrentPeriod: Boolean,
-        val targetRatio: Double,
+        val lambdaLevel: LambdaLevel,
     )
 
-    private data class Request(val period: StatPeriod, val start: Long, val now: Long, val ratio: Double)
+    private data class Request(val period: StatPeriod, val start: Long, val now: Long, val level: LambdaLevel)
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val ui: StateFlow<StatsUi> = combine(_period, _start, ticker, targetRatio) { p, s, now, ratio ->
-        Request(p, s, now, ratio)
+    val ui: StateFlow<StatsUi> = combine(_period, _start, ticker, lambdaLevel) { p, s, now, level ->
+        Request(p, s, now, level)
     }.flatMapLatest { req ->
         val end = TimeUtil.periodEnd(req.period, req.start)
         // Bounded window: only the selected period's events + the boundary event.
@@ -68,18 +69,18 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
                     periodEnd = end,
                     now = req.now,
                     period = req.period,
-                    targetRatio = req.ratio,
+                    targetRatio = req.level.targetRatio,
                 ),
                 label = TimeUtil.periodLabel(req.period, req.start, minOf(req.now, end)),
                 period = req.period,
                 start = req.start,
                 isCurrentPeriod = req.now < end,
-                targetRatio = req.ratio,
+                lambdaLevel = req.level,
             )
         }.flowOn(Dispatchers.Default)
     }.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5_000),
-        StatsUi(StatsCalculator.compute(emptyList(), 0, 0, 0), "", StatPeriod.DAY, 0, true, 0.5),
+        StatsUi(StatsCalculator.compute(emptyList(), 0, 0, 0), "", StatPeriod.DAY, 0, true, DefaultConfig.DEFAULT_LAMBDA),
     )
 
     fun setPeriod(p: StatPeriod) {
