@@ -26,6 +26,9 @@ import kotlinx.coroutines.flow.stateIn
 class StatsViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = AppGraph.repository(app)
 
+    val stateColors: StateFlow<Map<String, Int>> =
+        repo.observeStateColors().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     private val _period = MutableStateFlow(StatPeriod.DAY)
     val period: StateFlow<StatPeriod> = _period
 

@@ -36,6 +36,9 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     val stateDefs: StateFlow<List<StateDef>> =
         repo.observeStateDefs().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val stateColors: StateFlow<Map<String, Int>> =
+        repo.observeStateColors().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     /** Latest event only — drives the current-state card without loading the full event log. */
     val latestEvent: StateFlow<StateEvent?> =
         repo.observeLatestEvent().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -84,6 +87,9 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private val alarmUnavailableChannel = Channel<Unit>(Channel.BUFFERED)
     val alarmUnavailable = alarmUnavailableChannel.receiveAsFlow()
 
+    private val restRequiredChannel = Channel<Long>(Channel.BUFFERED)
+    val restRequired = restRequiredChannel.receiveAsFlow()
+
     init {
         // Reconcile a pomodoro that ended while the app was closed, and show changelog on version bump.
         viewModelScope.launch(Dispatchers.IO) {
@@ -99,8 +105,10 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     fun switchState(stateId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            if (repo.switchState(stateId, System.currentTimeMillis()) == SwitchStateResult.ExactAlarmUnavailable) {
-                alarmUnavailableChannel.trySend(Unit)
+            when (val result = repo.switchState(stateId, System.currentTimeMillis())) {
+                SwitchStateResult.ExactAlarmUnavailable -> alarmUnavailableChannel.trySend(Unit)
+                is SwitchStateResult.RestRequired -> restRequiredChannel.trySend(result.untilTimestamp)
+                else -> Unit
             }
         }
     }

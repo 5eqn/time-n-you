@@ -35,6 +35,9 @@ interface EventDao {
     @Query("SELECT * FROM state_event ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLatest(): StateEventEntity?
 
+    @Query("SELECT DISTINCT state_id FROM state_event")
+    suspend fun getDistinctStateIds(): List<String>
+
     @Query(
         """
         UPDATE state_event

@@ -72,6 +72,7 @@ private data class MonthSummary(
 fun StatsScreen() {
     val vm: StatsViewModel = viewModel()
     val ui by vm.ui.collectAsStateWithLifecycle()
+    val stateColors by vm.stateColors.collectAsStateWithLifecycle()
     val r = ui.result
     var breakdownMode by rememberSaveable { mutableStateOf(BreakdownMode.SUMMARY) }
 
@@ -153,7 +154,7 @@ fun StatsScreen() {
                             label = st.stateName,
                             valueText = TimeUtil.formatHm(st.ms),
                             fraction = st.ms.toFloat() / maxMs.toFloat(),
-                            color = ColorUtil.colorFor(st.stateId),
+                            color = ColorUtil.colorFor(st.stateId, stateColors[st.stateId]),
                         )
                         Spacer(Modifier.height(10.dp))
                     }
@@ -170,7 +171,7 @@ fun StatsScreen() {
                     }
                     when {
                         ui.period == StatPeriod.YEAR -> YearSummaryRows(r.perDay)
-                        breakdownMode == BreakdownMode.ACTUAL -> DailyTimelineRows(ui.period, r.perDay)
+                        breakdownMode == BreakdownMode.ACTUAL -> DailyTimelineRows(ui.period, r.perDay, stateColors)
                         else -> DailySummaryRows(ui.period, r.perDay)
                     }
                 }
@@ -320,19 +321,20 @@ private fun SummaryRow(label: String, effectiveMs: Long, availableMs: Long) {
 }
 
 @Composable
-private fun DailyTimelineRows(period: StatPeriod, days: List<DayStat>) {
+private fun DailyTimelineRows(period: StatPeriod, days: List<DayStat>, stateColors: Map<String, Int>) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         days.forEachIndexed { index, day ->
             TimelineRow(
                 label = dayLabel(period, index, days, day.date),
                 day = day,
+                stateColors = stateColors,
             )
         }
     }
 }
 
 @Composable
-private fun TimelineRow(label: String, day: DayStat) {
+private fun TimelineRow(label: String, day: DayStat, stateColors: Map<String, Int>) {
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
     val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
     Row(
@@ -369,7 +371,7 @@ private fun TimelineRow(label: String, day: DayStat) {
                 val width = (endX - x).coerceAtLeast(1f)
                 val barHeight = if (segment.category == Category.REST) restHeight else activeHeight
                 drawRect(
-                    color = ColorUtil.colorFor(segment.stateId),
+                    color = ColorUtil.colorFor(segment.stateId, stateColors[segment.stateId]),
                     topLeft = Offset(x, centerY - barHeight / 2f),
                     size = Size(width, barHeight),
                 )

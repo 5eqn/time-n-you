@@ -30,6 +30,10 @@ data class ExportConfig(
     val pomodoroExitStateId: String,
     /** Added in schema 3. Nullable so schema-2 backups deserialize safely. */
     val lambda: Int? = null,
+    /** Added in schema 4. Includes colors for deleted states that still have history. */
+    val stateColors: Map<String, Int>? = null,
+    val minimumFocusBreakMinutes: Int? = null,
+    val lastFocusPomodoroEndTs: Long? = null,
 )
 
 data class ExportBundle(

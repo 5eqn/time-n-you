@@ -54,6 +54,7 @@ import kotlin.math.roundToInt
 fun HomeScreen() {
     val vm: HomeViewModel = viewModel()
     val defs by vm.stateDefs.collectAsStateWithLifecycle()
+    val stateColors by vm.stateColors.collectAsStateWithLifecycle()
     val latest by vm.latestEvent.collectAsStateWithLifecycle()
     val today by vm.todayStats.collectAsStateWithLifecycle()
     val lambdaLevel by vm.lambdaLevel.collectAsStateWithLifecycle()
@@ -66,12 +67,14 @@ fun HomeScreen() {
     // Intercepting tip: holds the (tip, target stateId) awaiting user confirmation.
     var pendingTip by remember { mutableStateOf<Pair<TipId, String>?>(null) }
     var showChangelog by remember { mutableStateOf(false) }
+    var restRequiredUntil by remember { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(Unit) {
         vm.missed.collect {
             Toast.makeText(context, R.string.missed_pomodoro_toast, Toast.LENGTH_LONG).show()
         }
     }
+    LaunchedEffect(Unit) { vm.restRequired.collect { restRequiredUntil = it } }
     LaunchedEffect(Unit) { vm.changelog.collect { showChangelog = true } }
     LaunchedEffect(Unit) {
         vm.alarmUnavailable.collect {
@@ -99,6 +102,7 @@ fun HomeScreen() {
             CurrentStateCard(
                 latest = latest,
                 currentDef = currentDef,
+                colorIndex = (currentDef?.id ?: latest?.stateId)?.let { stateColors[it] },
             )
         }
         item {
@@ -143,7 +147,7 @@ fun HomeScreen() {
                             label = st.stateName,
                             valueText = TimeUtil.formatHm(st.ms),
                             fraction = st.ms.toFloat() / maxStateMs.toFloat(),
-                            color = ColorUtil.colorFor(st.stateId),
+                            color = ColorUtil.colorFor(st.stateId, stateColors[st.stateId]),
                         )
                         Spacer(Modifier.height(10.dp))
                     }
@@ -161,6 +165,7 @@ fun HomeScreen() {
             StateChip(
                 name = def.name,
                 colorSeed = def.id,
+                colorIndex = stateColors[def.id],
                 selected = latest?.stateId == def.id,
                 showPomodoro = def.pomodoroEnabled,
                 onClick = { onStateTap(def) },
@@ -197,12 +202,44 @@ fun HomeScreen() {
             },
         )
     }
+
+    restRequiredUntil?.let { until ->
+        RestRequiredDialog(untilTimestamp = until, onDismiss = { restRequiredUntil = null })
+    }
+}
+
+@Composable
+private fun RestRequiredDialog(untilTimestamp: Long, onDismiss: () -> Unit) {
+    val nowState = rememberNowTick(1_000L)
+    val now by nowState
+    val remaining = (untilTimestamp - now).coerceAtLeast(0L)
+    LaunchedEffect(remaining) {
+        if (remaining <= 0L) onDismiss()
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.focus_break_title), fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(R.string.focus_break_message))
+                Text(
+                    stringResource(R.string.focus_break_remaining, TimeUtil.formatClock(remaining + 999L)),
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.got_it)) }
+        },
+    )
 }
 
 @Composable
 private fun CurrentStateCard(
     latest: StateEvent?,
     currentDef: StateDef?,
+    colorIndex: Int?,
 ) {
     // "now" ticks every second (always) — drives the live elapsed/countdown. Read here, not at
     // the screen root, so only this small card recomposes per tick.
@@ -217,7 +254,7 @@ private fun CurrentStateCard(
     val pomodoroActive = latest != null && latest.pomodoroEndTs != null && remaining > 0
     val name = latest?.stateName ?: "—"
     val seed = currentDef?.id ?: latest?.stateId ?: "default"
-    val bg = ColorUtil.colorFor(seed)
+    val bg = ColorUtil.colorFor(seed, colorIndex)
     val onColor = ColorUtil.OnFill
 
     // Lean: flat Column with a clipped background (no Surface/shadow overhead per frame).

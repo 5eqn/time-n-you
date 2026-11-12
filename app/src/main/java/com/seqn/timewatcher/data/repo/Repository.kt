@@ -5,6 +5,7 @@ import com.seqn.timewatcher.data.db.AppDatabase
 import com.seqn.timewatcher.data.db.entity.SettingEntity
 import com.seqn.timewatcher.data.db.entity.StateDefEntity
 import com.seqn.timewatcher.data.db.entity.StateEventEntity
+import com.seqn.timewatcher.data.db.entity.StateColorEntity
 import com.seqn.timewatcher.data.db.entity.toEntity
 import com.seqn.timewatcher.data.db.entity.toModel
 import com.seqn.timewatcher.data.model.Category
@@ -17,6 +18,7 @@ import com.seqn.timewatcher.data.model.JsonCodec
 import com.seqn.timewatcher.data.model.LambdaLevel
 import com.seqn.timewatcher.data.model.StateDef
 import com.seqn.timewatcher.data.model.StateEvent
+import com.seqn.timewatcher.data.model.StateColors
 import com.seqn.timewatcher.data.model.defaultStateDefs
 import com.seqn.timewatcher.data.model.fromString
 import com.seqn.timewatcher.pomodoro.PomodoroAlarm
@@ -30,6 +32,7 @@ sealed interface SwitchStateResult {
     data class Success(val event: StateEvent) : SwitchStateResult
     data object StateNotFound : SwitchStateResult
     data object ExactAlarmUnavailable : SwitchStateResult
+    data class RestRequired(val untilTimestamp: Long) : SwitchStateResult
 }
 
 /** Single source of truth for state defs, switch events, settings, targets, tips, and the pomodoro lifecycle. */
@@ -40,8 +43,10 @@ class Repository(
     private val stateDefDao = db.stateDefDao()
     private val eventDao = db.eventDao()
     private val settingDao = db.settingDao()
+    private val stateColorDao = db.stateColorDao()
     private val dbRef = db
     private val initializationMutex = Mutex()
+    private val pomodoroMutex = Mutex()
     @Volatile private var initialized = false
 
     /** Creates a new database at the current shape or upgrades existing app data in order. */
@@ -52,9 +57,17 @@ class Repository(
             dbRef.withTransaction {
                 val storedVersion = settingDao.get(DefaultConfig.SETTING_DATA_VERSION)?.toIntOrNull()
                 if (storedVersion == null && stateDefDao.count() == 0) {
-                    stateDefDao.upsertAll(defaultStateDefs().map { it.toEntity() })
+                    val defaults = defaultStateDefs()
+                    stateDefDao.upsertAll(defaults.map { it.toEntity() })
+                    stateColorDao.upsertAll(defaults.map { StateColorEntity(it.id, StateColors.legacyIndexFor(it.id)) })
                     settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, DefaultConfig.DEFAULT_EXIT_STATE_ID))
                     settingDao.set(SettingEntity(DefaultConfig.SETTING_LAMBDA, DefaultConfig.DEFAULT_LAMBDA.value.toString()))
+                    settingDao.set(
+                        SettingEntity(
+                            DefaultConfig.SETTING_MIN_FOCUS_BREAK_MINUTES,
+                            DefaultConfig.DEFAULT_MIN_FOCUS_BREAK_MINUTES.toString(),
+                        ),
+                    )
                 } else {
                     val version = storedVersion ?: 0
                     if (version < 1) {
@@ -65,6 +78,7 @@ class Repository(
                     if (version < 3) migrateDogToRestMigration()
                     if (version < 4) migrateLambdaSetting()
                     if (version < 5) migrateBuiltInRestStatesMigration()
+                    if (version < 6) migrateStateColorsAndBreakSetting()
                 }
                 settingDao.set(
                     SettingEntity(DefaultConfig.SETTING_DATA_VERSION, DefaultConfig.CURRENT_DATA_VERSION.toString()),
@@ -101,6 +115,14 @@ class Repository(
 
     fun observeSettings(): Flow<Map<String, String>> =
         settingDao.observeAll().map { list -> list.associate { it.key to it.value } }
+
+    fun observeStateColors(): Flow<Map<String, Int>> =
+        stateColorDao.observeAll().map { list -> list.associate { it.stateId to it.colorIndex } }
+
+    suspend fun getStateColors(): Map<String, Int> {
+        initialize()
+        return stateColorDao.getAll().associate { it.stateId to it.colorIndex }
+    }
 
     suspend fun getStateDefs(): List<StateDef> {
         initialize()
@@ -153,6 +175,27 @@ class Repository(
         settingDao.set(SettingEntity(DefaultConfig.SETTING_LAMBDA, level.value.toString()))
     }
 
+    suspend fun getMinimumFocusBreakMinutes(): Int {
+        initialize()
+        return minimumFocusBreakMinutes()
+    }
+
+    suspend fun setMinimumFocusBreakMinutes(minutes: Int) {
+        initialize()
+        require(minutes >= 0)
+        settingDao.set(SettingEntity(DefaultConfig.SETTING_MIN_FOCUS_BREAK_MINUTES, minutes.toString()))
+    }
+
+    private suspend fun minimumFocusBreakMinutes(): Int =
+        settingDao.get(DefaultConfig.SETTING_MIN_FOCUS_BREAK_MINUTES)?.toIntOrNull()?.coerceAtLeast(0)
+            ?: DefaultConfig.DEFAULT_MIN_FOCUS_BREAK_MINUTES
+
+    suspend fun setStateColor(stateId: String, colorIndex: Int) {
+        initialize()
+        require(StateColors.isValid(colorIndex))
+        stateColorDao.upsert(StateColorEntity(stateId, colorIndex))
+    }
+
     // ---- tip enable/disable ----
     suspend fun getTipEnabled(tipId: String): Boolean {
         initialize()
@@ -180,12 +223,27 @@ class Repository(
      *  No-op (keeps elapsed time) if already in [stateId]. */
     suspend fun switchState(stateId: String, now: Long): SwitchStateResult {
         initialize()
+        return pomodoroMutex.withLock {
+            // If alarm delivery was delayed, close the elapsed timer at its scheduled end first.
+            reconcilePomodoroUnlocked(now)
+            switchStateUnlocked(stateId, now)
+        }
+    }
+
+    private suspend fun switchStateUnlocked(stateId: String, now: Long): SwitchStateResult {
         val latest = eventDao.getLatest()
         if (latest != null && latest.stateId == stateId) {
             // Disallow re-entering the current state — would otherwise reset the running timer.
             return SwitchStateResult.Success(latest.toModel())
         }
         val def = stateDefDao.getById(stateId) ?: return SwitchStateResult.StateNotFound
+        if (Category.fromString(def.category) == Category.EFFECTIVE && def.pomodoroEnabled) {
+            val lastEnd = settingDao.get(DefaultConfig.SETTING_LAST_FOCUS_POMODORO_END_TS)?.toLongOrNull()
+            if (lastEnd != null) {
+                val until = lastEnd + minimumFocusBreakMinutes().toLong() * 60_000L
+                if (now < until) return SwitchStateResult.RestRequired(until)
+            }
+        }
         val endTs = if (def.pomodoroEnabled && def.pomodoroMinutes > 0) {
             if (!alarm.canScheduleExactAlarms()) return SwitchStateResult.ExactAlarmUnavailable
             now + def.pomodoroMinutes * 60_000L
@@ -239,20 +297,31 @@ class Repository(
      *  state. Returns the exit StateDef when it fired, else null. */
     suspend fun reconcilePomodoro(now: Long): StateDef? {
         initialize()
+        return pomodoroMutex.withLock { reconcilePomodoroUnlocked(now) }
+    }
+
+    private suspend fun reconcilePomodoroUnlocked(now: Long): StateDef? {
         val latest = eventDao.getLatest() ?: return null
         val endTs = latest.pomodoroEndTs ?: return null
         if (endTs > now) return null // still running
         val exit = resolveExitState()
-        eventDao.insert(
-            StateEventEntity(
-                stateId = exit.id,
-                stateName = exit.name,
-                category = exit.category.name,
-                timestamp = endTs, // attribute the time since the scheduled end to the exit state
-                pomodoroEndTs = null,
-                pomodoroApplied = false,
-            ),
-        )
+        dbRef.withTransaction {
+            eventDao.insert(
+                StateEventEntity(
+                    stateId = exit.id,
+                    stateName = exit.name,
+                    category = exit.category.name,
+                    timestamp = endTs, // attribute the time since the scheduled end to the exit state
+                    pomodoroEndTs = null,
+                    pomodoroApplied = false,
+                ),
+            )
+            if (latest.pomodoroApplied && Category.fromString(latest.category) == Category.EFFECTIVE) {
+                settingDao.set(
+                    SettingEntity(DefaultConfig.SETTING_LAST_FOCUS_POMODORO_END_TS, endTs.toString()),
+                )
+            }
+        }
         alarm.cancel()
         return exit
     }
@@ -261,6 +330,10 @@ class Repository(
      *  Returns the exit StateDef when a reconcile fired, else null. */
     suspend fun reconcileAndArm(now: Long): StateDef? {
         initialize()
+        return pomodoroMutex.withLock { reconcileAndArmUnlocked(now) }
+    }
+
+    private suspend fun reconcileAndArmUnlocked(now: Long): StateDef? {
         val latest = eventDao.getLatest()
         if (latest == null) {
             alarm.cancel()
@@ -275,7 +348,7 @@ class Repository(
             alarm.schedule(endTs)
             null
         } else {
-            reconcilePomodoro(now)
+            reconcilePomodoroUnlocked(now)
         }
     }
 
@@ -311,6 +384,7 @@ class Repository(
             sortOrder = count,
         )
         stateDefDao.upsert(def.toEntity())
+        stateColorDao.upsert(StateColorEntity(def.id, StateColors.legacyIndexFor(def.id)))
         return def
     }
 
@@ -331,11 +405,23 @@ class Repository(
     suspend fun resetToDefaultConfig() {
         initialize()
         dbRef.withTransaction {
+            val lastFocusEnd = settingDao.get(DefaultConfig.SETTING_LAST_FOCUS_POMODORO_END_TS)
+            val defaults = defaultStateDefs()
             stateDefDao.deleteAll()
-            stateDefDao.upsertAll(defaultStateDefs().map { it.toEntity() })
+            stateDefDao.upsertAll(defaults.map { it.toEntity() })
+            stateColorDao.upsertAll(defaults.map { StateColorEntity(it.id, StateColors.legacyIndexFor(it.id)) })
             settingDao.deleteAll()
             settingDao.set(SettingEntity(DefaultConfig.SETTING_EXIT_STATE, DefaultConfig.DEFAULT_EXIT_STATE_ID))
             settingDao.set(SettingEntity(DefaultConfig.SETTING_LAMBDA, DefaultConfig.DEFAULT_LAMBDA.value.toString()))
+            settingDao.set(
+                SettingEntity(
+                    DefaultConfig.SETTING_MIN_FOCUS_BREAK_MINUTES,
+                    DefaultConfig.DEFAULT_MIN_FOCUS_BREAK_MINUTES.toString(),
+                ),
+            )
+            lastFocusEnd?.let {
+                settingDao.set(SettingEntity(DefaultConfig.SETTING_LAST_FOCUS_POMODORO_END_TS, it))
+            }
             settingDao.set(SettingEntity(DefaultConfig.SETTING_DATA_VERSION, DefaultConfig.CURRENT_DATA_VERSION.toString()))
             // targets + tips fall back to defaults by absence of keys
         }
@@ -437,6 +523,23 @@ class Repository(
         }
     }
 
+    /** v1.5: materialize v1.4's derived colors and add the default break requirement. */
+    private suspend fun migrateStateColorsAndBreakSetting() {
+        val ids = (stateDefDao.getAll().map { it.id } + eventDao.getDistinctStateIds()).toSet()
+        val existing = stateColorDao.getAll().associateBy { it.stateId }
+        stateColorDao.upsertAll(
+            ids.filterNot { it in existing }.map { StateColorEntity(it, StateColors.legacyIndexFor(it)) },
+        )
+        if (settingDao.get(DefaultConfig.SETTING_MIN_FOCUS_BREAK_MINUTES) == null) {
+            settingDao.set(
+                SettingEntity(
+                    DefaultConfig.SETTING_MIN_FOCUS_BREAK_MINUTES,
+                    DefaultConfig.DEFAULT_MIN_FOCUS_BREAK_MINUTES.toString(),
+                ),
+            )
+        }
+    }
+
     /** Item 14: if the configured pomodoro exit state is an EFFECTIVE state and 摆烂 exists,
      *  switch the exit to 摆烂 (effective exit states violate the design philosophy). */
     private suspend fun migrateExitToSlackIfEffectiveMigration() {
@@ -474,6 +577,10 @@ class Repository(
                 },
                 pomodoroExitStateId = exitStateId(),
                 lambda = getLambda().value,
+                stateColors = stateColorDao.getAll().associate { it.stateId to it.colorIndex },
+                minimumFocusBreakMinutes = minimumFocusBreakMinutes(),
+                lastFocusPomodoroEndTs = settingDao.get(DefaultConfig.SETTING_LAST_FOCUS_POMODORO_END_TS)
+                    ?.toLongOrNull(),
             ),
             events = events.map {
                 ExportEvent(
@@ -498,6 +605,7 @@ class Repository(
                 stateDefDao.deleteAll()
                 eventDao.deleteAll()
                 settingDao.deleteAll()
+                stateColorDao.deleteAll()
                 stateDefDao.upsertAll(
                     bundle.config.states.map {
                         StateDefEntity(
@@ -523,6 +631,20 @@ class Repository(
                         )
                     },
                 )
+                val allStateIds = (
+                    bundle.config.states.map { it.id } +
+                        bundle.events.map { it.stateId } +
+                        bundle.config.stateColors.orEmpty().keys
+                    ).toSet()
+                stateColorDao.upsertAll(
+                    allStateIds.map { id ->
+                        StateColorEntity(
+                            id,
+                            bundle.config.stateColors?.get(id)?.takeIf(StateColors::isValid)
+                                ?: StateColors.legacyIndexFor(id),
+                        )
+                    },
+                )
                 // Imports can come from older backups, so enforce current built-in defaults too.
                 migrateDogToRestMigration()
                 migrateBuiltInRestStatesMigration()
@@ -533,6 +655,21 @@ class Repository(
                     DefaultConfig.DEFAULT_LAMBDA
                 }
                 settingDao.set(SettingEntity(DefaultConfig.SETTING_LAMBDA, importedLambda.value.toString()))
+                val breakMinutes = if (bundle.schemaVersion >= 4) {
+                    bundle.config.minimumFocusBreakMinutes!!
+                } else {
+                    DefaultConfig.DEFAULT_MIN_FOCUS_BREAK_MINUTES
+                }
+                settingDao.set(
+                    SettingEntity(DefaultConfig.SETTING_MIN_FOCUS_BREAK_MINUTES, breakMinutes.toString()),
+                )
+                if (bundle.schemaVersion >= 4) {
+                    bundle.config.lastFocusPomodoroEndTs?.let {
+                        settingDao.set(
+                            SettingEntity(DefaultConfig.SETTING_LAST_FOCUS_POMODORO_END_TS, it.toString()),
+                        )
+                    }
+                }
                 settingDao.set(
                     SettingEntity(DefaultConfig.SETTING_DATA_VERSION, DefaultConfig.CURRENT_DATA_VERSION.toString()),
                 )
@@ -548,6 +685,14 @@ class Repository(
         return try {
             if (bundle.schemaVersion !in 2..DefaultConfig.SCHEMA_VERSION) return false
             if (bundle.schemaVersion >= 3 && bundle.config.lambda !in setOf(2, 3, 5)) return false
+            if (bundle.schemaVersion >= 4) {
+                if (bundle.config.minimumFocusBreakMinutes == null ||
+                    bundle.config.minimumFocusBreakMinutes < 0
+                ) return false
+                val colors = bundle.config.stateColors ?: return false
+                if (colors.any { (id, index) -> id.isBlank() || !StateColors.isValid(index) }) return false
+                if (bundle.config.lastFocusPomodoroEndTs?.let { it < 0 } == true) return false
+            }
             val states = bundle.config.states
             if (states.isEmpty() || states.any {
                     it.id.isBlank() || it.name.isBlank() ||

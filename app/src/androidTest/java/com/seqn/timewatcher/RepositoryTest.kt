@@ -13,6 +13,7 @@ import com.seqn.timewatcher.data.model.ExportConfig
 import com.seqn.timewatcher.data.model.ExportStateDef
 import com.seqn.timewatcher.data.model.JsonCodec
 import com.seqn.timewatcher.data.model.LambdaLevel
+import com.seqn.timewatcher.data.model.StateColors
 import com.seqn.timewatcher.data.repo.SwitchStateResult
 import com.seqn.timewatcher.data.repo.Repository
 import com.seqn.timewatcher.pomodoro.PomodoroAlarm
@@ -61,6 +62,8 @@ class RepositoryTest {
     fun seeding_creates_seven_default_states() = runBlocking {
         assertThat(repo.getStateDefs()).hasSize(7)
         assertThat(repo.getExitStateId()).isEqualTo(DefaultConfig.DEFAULT_EXIT_STATE_ID)
+        assertThat(repo.getMinimumFocusBreakMinutes()).isEqualTo(3)
+        assertThat(repo.getStateColors()).hasSize(7)
     }
 
     @Test
@@ -203,6 +206,24 @@ class RepositoryTest {
     }
 
     @Test
+    fun migrate_v6_materializes_legacy_colors_for_definitions_and_history() = runBlocking {
+        val custom = repo.addStateDef("历史颜色")
+        repo.addManualEvent(custom.id, 1_000L)
+        repo.deleteStateDef(custom.id)
+        db.stateColorDao().deleteAll()
+        db.settingDao().delete(DefaultConfig.SETTING_MIN_FOCUS_BREAK_MINUTES)
+        db.settingDao().set(SettingEntity(DefaultConfig.SETTING_DATA_VERSION, "5"))
+
+        repo = Repository(db, fakeAlarm)
+        repo.initialize()
+
+        val colors = repo.getStateColors()
+        assertThat(colors[DefaultConfig.ID_WORK]).isEqualTo(0)
+        assertThat(colors[custom.id]).isEqualTo(StateColors.legacyIndexFor(custom.id))
+        assertThat(repo.getMinimumFocusBreakMinutes()).isEqualTo(3)
+    }
+
+    @Test
     fun switching_to_pomodoro_state_arms_alarm() = runBlocking {
         val now = 1_000_000L
         val ev = (repo.switchState(DefaultConfig.ID_WORK, now) as SwitchStateResult.Success).event
@@ -266,6 +287,78 @@ class RepositoryTest {
     }
 
     @Test
+    fun completed_focus_pomodoro_requires_break_before_any_focus_pomodoro() = runBlocking {
+        val end = DefaultConfig.DEFAULT_POMODORO_MINUTES * 60_000L
+        repo.switchState(DefaultConfig.ID_WORK, 0L)
+        repo.reconcilePomodoro(end)
+
+        val blocked = repo.switchState(DefaultConfig.ID_HOBBY, end + 60_000L)
+
+        assertThat(blocked).isEqualTo(SwitchStateResult.RestRequired(end + 180_000L))
+        assertThat(repo.getLatestEvent()!!.stateId).isEqualTo(DefaultConfig.ID_SLACK)
+        assertThat(repo.switchState(DefaultConfig.ID_SLEEP, end + 60_000L))
+            .isInstanceOf(SwitchStateResult.Success::class.java)
+    }
+
+    @Test
+    fun switching_after_delayed_alarm_reconciles_then_enforces_break() = runBlocking {
+        val end = DefaultConfig.DEFAULT_POMODORO_MINUTES * 60_000L
+        repo.switchState(DefaultConfig.ID_WORK, 0L)
+
+        val result = repo.switchState(DefaultConfig.ID_HOBBY, end + 1_000L)
+
+        assertThat(result).isEqualTo(SwitchStateResult.RestRequired(end + 180_000L))
+        assertThat(repo.getLatestEvent()!!.timestamp).isEqualTo(end)
+    }
+
+    @Test
+    fun leaving_focus_early_does_not_require_break() = runBlocking {
+        repo.switchState(DefaultConfig.ID_WORK, 0L)
+        repo.switchState(DefaultConfig.ID_SLACK, 60_000L)
+
+        assertThat(repo.switchState(DefaultConfig.ID_HOBBY, 61_000L))
+            .isInstanceOf(SwitchStateResult.Success::class.java)
+    }
+
+    @Test
+    fun zero_break_setting_disables_block_without_special_case() = runBlocking {
+        val end = DefaultConfig.DEFAULT_POMODORO_MINUTES * 60_000L
+        repo.setMinimumFocusBreakMinutes(0)
+        repo.switchState(DefaultConfig.ID_WORK, 0L)
+        repo.reconcilePomodoro(end)
+
+        assertThat(repo.switchState(DefaultConfig.ID_HOBBY, end))
+            .isInstanceOf(SwitchStateResult.Success::class.java)
+    }
+
+    @Test
+    fun active_break_survives_reset_and_v4_export_import() = runBlocking {
+        val end = DefaultConfig.DEFAULT_POMODORO_MINUTES * 60_000L
+        repo.switchState(DefaultConfig.ID_WORK, 0L)
+        repo.reconcilePomodoro(end)
+        repo.resetToDefaultConfig()
+
+        assertThat(repo.switchState(DefaultConfig.ID_HOBBY, end + 1_000L))
+            .isEqualTo(SwitchStateResult.RestRequired(end + 180_000L))
+
+        val bundle = JsonCodec.fromJson(repo.exportJson(end + 2_000L))!!
+        assertThat(bundle.config.lastFocusPomodoroEndTs).isEqualTo(end)
+        assertThat(repo.importBundle(bundle)).isTrue()
+        assertThat(repo.switchState(DefaultConfig.ID_WORK, end + 2_000L))
+            .isEqualTo(SwitchStateResult.RestRequired(end + 180_000L))
+    }
+
+    @Test
+    fun rest_pomodoro_completion_does_not_start_focus_break() = runBlocking {
+        val end = DefaultConfig.SNOOZE_POMODORO_MINUTES * 60_000L
+        repo.switchState(DefaultConfig.ID_SNOOZE, 0L)
+        repo.reconcilePomodoro(end)
+
+        assertThat(repo.switchState(DefaultConfig.ID_WORK, end))
+            .isInstanceOf(SwitchStateResult.Success::class.java)
+    }
+
+    @Test
     fun export_then_import_round_trips_data() = runBlocking {
         // Use non-pomodoro states so import's reconcile doesn't append an exit event.
         repo.switchState(DefaultConfig.ID_SLEEP, 1_000L)
@@ -299,6 +392,39 @@ class RepositoryTest {
         assertThat(repo.importBundle(oldBundle)).isTrue()
 
         assertThat(repo.getLambda()).isEqualTo(LambdaLevel.STEADY)
+    }
+
+    @Test
+    fun schema_three_backup_without_colors_uses_legacy_assignment() = runBlocking {
+        val custom = repo.addStateDef("旧状态")
+        repo.addManualEvent(custom.id, 1_000L)
+        repo.deleteStateDef(custom.id)
+        val current = JsonCodec.fromJson(repo.exportJson(2_000L))!!
+        val oldBundle = current.copy(
+            schemaVersion = 3,
+            config = current.config.copy(
+                stateColors = null,
+                minimumFocusBreakMinutes = null,
+                lastFocusPomodoroEndTs = null,
+            ),
+        )
+
+        assertThat(repo.importBundle(oldBundle)).isTrue()
+        assertThat(repo.getStateColors()[custom.id]).isEqualTo(StateColors.legacyIndexFor(custom.id))
+        assertThat(repo.getMinimumFocusBreakMinutes()).isEqualTo(3)
+    }
+
+    @Test
+    fun chosen_color_survives_state_deletion_and_export_import() = runBlocking {
+        val custom = repo.addStateDef("彩色状态")
+        repo.setStateColor(custom.id, 15)
+        repo.addManualEvent(custom.id, 1_000L)
+        repo.deleteStateDef(custom.id)
+
+        val bundle = JsonCodec.fromJson(repo.exportJson(2_000L))!!
+        assertThat(bundle.config.stateColors!![custom.id]).isEqualTo(15)
+        assertThat(repo.importBundle(bundle)).isTrue()
+        assertThat(repo.getStateColors()[custom.id]).isEqualTo(15)
     }
 
     @Test

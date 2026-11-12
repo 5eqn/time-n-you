@@ -42,10 +42,11 @@ fun StateChip(
     showPomodoro: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    colorIndex: Int? = null,
     note: String? = null,
     pomodoroMinutes: Int = 0,
 ) {
-    val bg = ColorUtil.colorFor(colorSeed)
+    val bg = ColorUtil.colorFor(colorSeed, colorIndex)
     val onColor = ColorUtil.OnFill
     val shape = RoundedCornerShape(18.dp)
     Box(

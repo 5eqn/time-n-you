@@ -67,9 +67,8 @@ object Tips {
     fun triggersPhilosophy(categoryName: String, pomodoroEnabled: Boolean): Boolean =
         categoryName == "EFFECTIVE" && !pomodoroEnabled
 
-    const val CHANGELOG_TITLE = "时间&你 已更新到 1.4"
-    const val CHANGELOG = """• 新增「专注尺度 λ」，可选择 λ5、λ3 或 λ2，对应 20%、33% 或 50% 的利用率目标。
-• 统一时间概念：「有效、无效、休息」调整为「专注、非专注、免计」，利用率按「专注时间 ÷ 可支配时间」计算。
-• 所有统计周期达到所选 λ 标准即可评为优秀，并优化统计呈现。
-• 「喂狗」归入免计时间，已有记录会自动同步。"""
+    const val CHANGELOG_TITLE = "时间&你 已更新到 1.5"
+    const val CHANGELOG = """• 专注番茄钟自然结束后，默认至少休息 3 分钟再开始下一轮；可在设置中调整或设为 0 关闭。
+• 每种状态现在可从 16 种颜色中自由选择，首页与全部历史统计会同步更新。
+• 旧数据与旧备份会自动沿用升级前的状态颜色。"""
 }

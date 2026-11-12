@@ -24,6 +24,18 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     val stateDefs: StateFlow<List<StateDef>> =
         repo.observeStateDefs().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val stateColors: StateFlow<Map<String, Int>> =
+        repo.observeStateColors().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    val minimumFocusBreakMinutes: StateFlow<Int> = repo.observeSettings().map { settings ->
+        settings[DefaultConfig.SETTING_MIN_FOCUS_BREAK_MINUTES]?.toIntOrNull()?.coerceAtLeast(0)
+            ?: DefaultConfig.DEFAULT_MIN_FOCUS_BREAK_MINUTES
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        DefaultConfig.DEFAULT_MIN_FOCUS_BREAK_MINUTES,
+    )
+
     private val _exitStateId = MutableStateFlow(DefaultConfig.DEFAULT_EXIT_STATE_ID)
     val exitStateId: StateFlow<String> = _exitStateId
 
@@ -59,6 +71,12 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         repo.setTipEnabled(id.name, enabled)
     }
     fun setLambda(level: LambdaLevel) = viewModelScope.launch(Dispatchers.IO) { repo.setLambda(level) }
+    fun setMinimumFocusBreakMinutes(minutes: Int) = viewModelScope.launch(Dispatchers.IO) {
+        repo.setMinimumFocusBreakMinutes(minutes)
+    }
+    fun setStateColor(stateId: String, colorIndex: Int) = viewModelScope.launch(Dispatchers.IO) {
+        repo.setStateColor(stateId, colorIndex)
+    }
     fun addManualEvent(stateId: String, timestamp: Long) = viewModelScope.launch(Dispatchers.IO) {
         repo.addManualEvent(stateId, timestamp)
     }

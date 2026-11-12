@@ -28,7 +28,7 @@ enum class LambdaLevel(
 }
 
 object DefaultConfig {
-    const val SCHEMA_VERSION = 3
+    const val SCHEMA_VERSION = 4
 
     // Stable ids for the default states — never change, so events/refs stay valid after rename.
     const val ID_SLEEP = "sleep"
@@ -59,10 +59,13 @@ object DefaultConfig {
     /** Legacy v1.3.1 setting, read once by the v1.4 migration. */
     const val SETTING_TARGET_RATIO = "target_ratio"
     const val SETTING_LAST_CHANGELOG_VERSION = "last_changelog_version"
+    const val SETTING_MIN_FOCUS_BREAK_MINUTES = "minimum_focus_break_minutes"
+    const val SETTING_LAST_FOCUS_POMODORO_END_TS = "last_focus_pomodoro_end_ts"
     const val SETTING_DATA_VERSION = "data_version"
     const val SETTING_TIP_PREFIX = "tip_enabled_" // + TipId.name
 
-    const val CURRENT_DATA_VERSION = 5
+    const val DEFAULT_MIN_FOCUS_BREAK_MINUTES = 3
+    const val CURRENT_DATA_VERSION = 6
 }
 
 data class StateDef(

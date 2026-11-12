@@ -9,6 +9,8 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -98,6 +100,8 @@ fun SettingsScreen() {
     val exitId by vm.exitStateId.collectAsStateWithLifecycle()
     val tipEnabled by vm.tipEnabled.collectAsStateWithLifecycle()
     val lambdaLevel by vm.lambdaLevel.collectAsStateWithLifecycle()
+    val stateColors by vm.stateColors.collectAsStateWithLifecycle()
+    val minimumFocusBreakMinutes by vm.minimumFocusBreakMinutes.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -174,9 +178,11 @@ fun SettingsScreen() {
                 canMoveUp = index > 0,
                 canMoveDown = index < defs.lastIndex,
                 philosophyEnabled = philosophyEnabled,
+                colorIndex = stateColors[def.id] ?: com.seqn.timewatcher.data.model.StateColors.legacyIndexFor(def.id),
                 onMove = onMove,
                 onDeleteRequest = requestDelete,
                 onUpdate = onUpdate,
+                onColorSelect = { color -> vm.setStateColor(def.id, color) },
             )
         }
         item {
@@ -191,6 +197,11 @@ fun SettingsScreen() {
         item {
             SectionCard(stringResource(R.string.settings_pomodoro)) {
                 ExitStateSelector(defs = defs, selectedId = exitId, philosophyEnabled = philosophyEnabled, onSelect = vm::setExit)
+                Spacer(Modifier.height(12.dp))
+                FocusBreakSetting(
+                    minutes = minimumFocusBreakMinutes,
+                    onChange = vm::setMinimumFocusBreakMinutes,
+                )
             }
         }
 
@@ -424,17 +435,20 @@ private fun BackfillDialog(
 @Composable
 private fun StateEditorRow(
     def: StateDef,
+    colorIndex: Int,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     philosophyEnabled: Boolean,
     onMove: (String, Int) -> Unit,
     onDeleteRequest: (StateDef) -> Unit,
     onUpdate: (StateDef) -> Unit,
+    onColorSelect: (Int) -> Unit,
 ) {
     var name by remember(def.id) { mutableStateOf(def.name) }
     var minutes by remember(def.id) { mutableStateOf(def.pomodoroMinutes.toString()) }
     var note by remember(def.id) { mutableStateOf(def.note ?: "") }
     var pendingDef by remember(def.id) { mutableStateOf<StateDef?>(null) }
+    var showColorPicker by remember(def.id) { mutableStateOf(false) }
 
     // Only intercept the *transition into* an "effective but unmanaged" state.
     fun tryApply(newDef: StateDef) {
@@ -461,7 +475,13 @@ private fun StateEditorRow(
                 IconButton(onClick = { onMove(def.id, 1) }, enabled = canMoveDown) {
                     Icon(Icons.Filled.ArrowDownward, contentDescription = "下移")
                 }
-                Box(Modifier.size(22.dp).clip(CircleShape).background(ColorUtil.colorFor(def.id)))
+                Box(
+                    Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(ColorUtil.colorForIndex(colorIndex))
+                        .clickable { showColorPicker = true },
+                )
                 Spacer(Modifier.width(10.dp))
                 OutlinedTextField(
                     value = name,
@@ -541,6 +561,72 @@ private fun StateEditorRow(
             },
         )
     }
+    if (showColorPicker) {
+        StateColorDialog(
+            selectedIndex = colorIndex,
+            onSelect = {
+                onColorSelect(it)
+                showColorPicker = false
+            },
+            onDismiss = { showColorPicker = false },
+        )
+    }
+}
+
+@Composable
+private fun StateColorDialog(selectedIndex: Int, onSelect: (Int) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.state_color), fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ColorUtil.palette.chunked(4).forEachIndexed { rowIndex, row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                    ) {
+                        row.forEachIndexed { columnIndex, color ->
+                            val index = rowIndex * 4 + columnIndex
+                            Box(
+                                Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .background(color)
+                                    .then(
+                                        if (index == selectedIndex) {
+                                            Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                                        } else Modifier
+                                    )
+                                    .clickable { onSelect(index) },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
+}
+
+@Composable
+private fun FocusBreakSetting(minutes: Int, onChange: (Int) -> Unit) {
+    var text by remember(minutes) { mutableStateOf(minutes.toString()) }
+    OutlinedTextField(
+        value = text,
+        onValueChange = { value ->
+            if (value.all(Char::isDigit)) {
+                text = value
+                value.toIntOrNull()?.let(onChange)
+            }
+        },
+        label = { Text(stringResource(R.string.settings_min_focus_break)) },
+        supportingText = { Text(stringResource(R.string.settings_min_focus_break_help)) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
